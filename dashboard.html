@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Otter — Student workspace</title>
+<link rel="stylesheet" href="dashboard.css?v=11">
+</head>
+<body>
+<div class="dashboard-shell">
+<aside class="sidebar">
+<a class="dashboard-brand" href="dashboard.html">
+<span class="dashboard-brand-mark">O</span>
+<span>
+<strong>otter</strong>
+<small>student home</small>
+</span>
+</a>
+<nav aria-label="Workspace navigation">
+<p class="nav-label">Your lab</p>
+<div class="side-nav">
+<button class="active" data-tab="overview" type="button">
+<span class="nav-icon">◈</span>Home</button>
+<button data-tab="partProposal" type="button">
+<span class="nav-icon">＋</span>Borrow parts</button>
+<button data-tab="borrowLogs" type="button">
+<span class="nav-icon">↕</span>My borrowed parts</button>
+<button data-tab="projectProposal" type="button">
+<span class="nav-icon">✦</span>Projects to join</button>
+</div>
+</nav>
+<div class="sidebar-bottom">
+<div class="side-tip">
+<strong>Friendly reminder</strong>
+<p>Bring parts back on time so everyone can keep making.</p>
+</div>
+<button class="sign-out" type="button">↪ Sign out</button>
+</div>
+</aside>
+<main class="dashboard-main">
+<header class="topbar">
+<div class="breadcrumb">otter / <strong>student home</strong>
+</div>
+<div class="top-actions">
+<button class="icon-button" type="button" aria-label="Search">⌕</button>
+<div class="profile-chip">
+<span>Student account</span>
+<span class="profile-avatar">YO</span>
+</div>
+</div>
+</header>
+<div class="page-heading">
+<div>
+<p class="eyebrow" id="todayLabel">Lab activity</p>
+<h1>
+<span id="pageLead">Good morning,</span> <span id="pageAccent">student</span>
+</h1>
+<p id="pageDescription">Everything you need for your next build.</p>
+</div>
+<div class="date-chip" id="currentDate">Today</div>
+</div>
+<section class="journey-strip" aria-labelledby="journeyTitle">
+<div class="journey-intro"><p class="eyebrow">Your borrowing journey</p><h2 id="journeyTitle">One clear path for every part</h2><p>Follow the same four steps from your first ask to bringing it back.</p></div>
+<ol class="journey-steps">
+<li><span>01</span><strong>Ask</strong><small>Choose parts</small></li>
+<li><span>02</span><strong>Get approved</strong><small>Teacher checks</small></li>
+<li><span>03</span><strong>Pick up</strong><small>Start making</small></li>
+<li><span>04</span><strong>Bring back</strong><small>Share the lab</small></li>
+</ol>
+</section>
+<section class="tab-view active" id="overviewView">
+<div class="overview-grid">
+<div class="feed-column">
+<div class="metrics">
+<div class="metric-card">
+<div class="metric-label">Parts with you <span>◉</span>
+</div>
+<strong id="partsOnLoanTotal">—</strong>
+<small>Currently with you</small>
+</div>
+<div class="metric-card">
+<div class="metric-label">Need to return <span>◌</span>
+</div>
+<strong id="partsOverdueTotal">—</strong>
+<small>Past their due date</small>
+</div>
+<div class="metric-card">
+<div class="metric-label">Projects joined <span>✦</span>
+</div>
+<strong id="projectsTakenTotal">—</strong>
+<small>Joined and interested</small>
+</div>
+</div>
+<section>
+<div class="panel-header" style="padding:0 2px 12px;border:0">
+<div class="panel-title">
+<i>◉</i> Latest from your lab</div>
+<small>Teacher announcements</small>
+</div>
+<div class="post-list" id="postList">
+</div>
+</section>
+</div>
+<div class="right-column">
+<section class="panel">
+<div class="panel-header">
+<div class="panel-title">
+<i>◷</i> Coming up</div>
+<small>Projects and loans</small>
+</div>
+<div class="deadline-list" id="deadlineList">
+<div class="empty-state compact-empty">
+<strong>No deadlines yet</strong>
+<p>Return dates for your loans and deadlines for joined projects will appear here.</p>
+</div>
+</div>
+</section>
+</div>
+</div>
+</section>
+<section class="tab-view" id="partProposalView">
+                <div class="proposal-grid">
+                    <div class="panel workspace-panel proposal-browse">
+<p class="eyebrow">Find equipment</p>
+<h2>What do you need?</h2>
+<p>Pick the parts for your build, then send your request to your teacher.</p>
+                        <div class="registry-searchbar">
+                            <input id="partSearch" type="search" placeholder="Search parts, categories, locations..." aria-label="Search parts">
+                            <select id="partCategoryFilter" aria-label="Filter by category"><option value="">All categories</option></select>
+                        </div>
+                        <div class="parts-grid" id="partsGrid"></div>
+                    </div>
+                    <aside class="panel workspace-panel proposal-cart">
+<p class="eyebrow">Your list</p>
+<h2>Parts to borrow</h2>
+                        <p id="cartSummary">No parts added yet.</p>
+                        <div class="cart-list" id="cartList">
+                            <div class="empty-state compact-empty"><strong>Cart is empty</strong><p>Add parts from the registry to start a proposal.</p></div>
+                        </div>
+                        <div class="cart-footer">
+                            <span class="cart-total" id="cartTotal">0 items</span>
+<button class="propose-button" id="proposeButton" type="button" disabled>Ask to borrow →</button>
+                        </div>
+                    </aside>
+                </div>
+                <div class="panel workspace-panel request-history">
+<p class="eyebrow">Your requests</p>
+<h2>Where things stand</h2>
+<p>See the latest updates from your teacher.</p>
+                    <div class="request-list" id="requestList"></div>
+                </div>
+            </section>
+<section class="tab-view" id="borrowLogsView">
+                <div class="panel workspace-panel">
+<p class="eyebrow">Your equipment</p>
+<h2>My borrowed parts</h2>
+<p>See what you have, when to bring it back, and your pick-up notes.</p>
+                    <div class="borrow-history-tools" role="search" aria-label="Filter borrow logs">
+                        <label class="history-search">
+                            <span aria-hidden="true">⌕</span>
+                            <input id="borrowSearch" type="search" placeholder="Search requests or parts..." aria-label="Search borrow logs">
+                        </label>
+                        <label class="history-filter">
+                            <span>Status</span>
+                            <select id="borrowStatusFilter" aria-label="Filter borrow logs by status">
+                                <option value="all">All activity</option>
+                                <option value="active">Still borrowing</option>
+                                <option value="approved">Approved, not collected</option>
+                                <option value="pending">Awaiting review</option>
+                                <option value="declined">Declined</option>
+                                <option value="returned">Returned</option>
+                            </select>
+                        </label>
+                        <label class="history-filter history-date">
+                            <span>From</span>
+                            <input id="borrowDateFrom" type="date" aria-label="Borrow logs from date">
+                        </label>
+                        <label class="history-filter history-date">
+                            <span>To</span>
+                            <input id="borrowDateTo" type="date" aria-label="Borrow logs to date">
+                        </label>
+                        <span class="history-count" id="borrowHistoryCount" aria-live="polite"></span>
+                    </div>
+                    <div class="borrow-list" id="borrowList"></div>
+                </div>
+            </section>
+<section class="tab-view" id="projectProposalView">
+                <div class="panel workspace-panel">
+<p class="eyebrow">Make something new</p>
+<h2>Projects to join</h2>
+<p>Find a project you like, say you’re interested, and invite friends to join you.</p>
+                    <div class="student-projects" id="studentProjects"></div>
+                </div>
+            </section>
+</main>
+</div>
+<div class="modal-backdrop" id="inviteModal" aria-hidden="true">
+                <form class="modal-panel" id="inviteForm">
+                    <div class="modal-head">
+                        <div>
+                            <p class="eyebrow">Noise</p>
+                            <h2 id="inviteTitle">Reach out to friends</h2>
+                        </div>
+                        <button class="modal-close" id="inviteClose" type="button" aria-label="Cancel share">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="auth-field"><label for="inviteSearch">Find classmates</label><input id="inviteSearch" type="search" placeholder="Search by name..."></div>
+                        <div class="invite-hint" id="inviteHint"></div>
+                        <div class="invite-list" id="inviteList"></div>
+                        <div class="invite-limits"><span id="inviteDailyLabel">Shares today: —/10</span><span id="invitePendingLabel">Already on this project: —</span></div>
+                    </div>
+                    <div class="modal-foot">
+                        <p class="modal-hint">The project is shared with a friend — they see it as coming, and your teacher can remove them if needed.</p>
+                        <button class="propose-button" id="sendInviteButton" type="submit" disabled>Send to friends →</button>
+                    </div>
+                </form>
+            </div>
+<div class="modal-backdrop" id="proposeModal" aria-hidden="true">
+                <form class="modal-panel" id="proposeForm">
+                    <div class="modal-head">
+                        <div>
+<p class="eyebrow">Almost ready</p>
+<h2>Ask to borrow these parts</h2>
+                        </div>
+                        <button class="modal-close" id="proposeClose" type="button" aria-label="Cancel proposal">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="modal-items" id="proposeItems"></div>
+<div class="auth-field"><label for="proposeReason">What are you making?</label><textarea id="proposeReason" maxlength="600" placeholder="Tell your teacher about your build and why you need these parts..." required></textarea></div>
+                        <div class="auth-field"><label for="proposeDuration">Borrow for</label>
+                            <div class="duration-row"><select id="proposeDuration" required>
+                                <option value="3">3 days</option>
+                                <option value="7" selected>7 days</option>
+                                <option value="10">10 days</option>
+                                <option value="14">14 days</option>
+                            </select></div>
+                            <small class="duration-note">Fixed durations — choose the one that fits your build.</small>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <p class="modal-hint">Your teacher will review this request before the parts are reserved.</p>
+<button class="propose-button" type="submit">Send request →</button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-backdrop" id="receiptModal" aria-hidden="true">
+                <div class="modal-panel receipt-panel">
+                    <div class="modal-head">
+                        <div>
+                            <p class="eyebrow">Pick-up receipt</p>
+                            <h2 id="receiptTitle">Borrow log</h2>
+                        </div>
+                        <button class="modal-close" id="receiptClose" type="button" aria-label="Close receipt">×</button>
+                    </div>
+                    <div class="modal-body" id="receiptBody"></div>
+                </div>
+            </div>
+            <div id="dashboardToast" style="position:fixed;left:50%;bottom:24px;z-index:10;transform:translate(-50%,90px);padding:11px 15px;border:1px solid rgba(245,246,239,.12);border-radius:9px;background:#c8f36d;color:#172016;font-size:11px;font-weight:800;box-shadow:0 15px 35px rgba(0,0,0,.3);transition:transform .25s ease">Copied to clipboard</div>
+<style>#dashboardToast.show{transform:translate(-50%,0)}</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+</script>
+<script src="social.js?v=4">
+</script>
+<script src="dashboard.js?v=23">
+</script>
+</body>
+</html>

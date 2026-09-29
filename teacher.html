@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Otter — Teacher console</title>
+    <link rel="stylesheet" href="teacher.css?v=21">
+<style>
+.sim-clock-banner.teacher { position: sticky; top: 0; z-index: 60; width: 100%; padding: 7px 16px; box-sizing: border-box; background: #fff3cd; border-bottom: 1px solid #e0c562; color: #5c4000; font-size: 13px; font-weight: 600; text-align: center; }
+.sim-clock-banner.teacher small { font-weight: 500; color: #7a5d0a; }
+</style>
+</head>
+<body>
+    <div class="teacher-shell">
+        <aside class="teacher-sidebar">
+            <a class="teacher-brand" href="teacher.html"><span class="teacher-mark">O</span><span><strong>otter teachers</strong><small>lab home</small></span></a>
+            <nav class="teacher-nav" aria-label="Teacher navigation">
+                <button class="active" data-tab="overview" type="button"><span class="nav-icon">◈</span>Home</button>
+                <button data-tab="parts" type="button"><span class="nav-icon">＋</span>Borrow requests</button>
+                <button data-tab="collateral" type="button"><span class="nav-icon">◈</span>Parts out</button>
+                <button data-tab="logs" type="button"><span class="nav-icon">≡</span>Return log</button>
+                <button data-tab="notice" type="button"><span class="nav-icon">⚠</span>Needs attention</button>
+                <button data-tab="projects" type="button"><span class="nav-icon">✦</span>Student projects</button>
+            </nav>
+            <div class="teacher-sidebar-footer">
+                <span id="teacherIdentity">Teacher</span>
+                <button id="teacherSignOut" type="button">↪ Sign out</button>
+            </div>
+        </aside>
+        <main class="teacher-main">
+            <header class="topbar">
+                <div class="breadcrumb">otter / <strong>teacher home</strong></div>
+                <span class="profile-chip" id="teacherChip">Teaching account</span>
+            </header>
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Teacher desk</p>
+                    <h1><span id="teacherLead">Good day,</span> <span id="teacherAccent">teacher</span></h1>
+                    <p id="teacherDescription">A clear view of your students, parts, and projects.</p>
+                </div>
+            </div>
+            <section class="teacher-rhythm" aria-label="Teacher workflow">
+                <div class="rhythm-intro"><p class="eyebrow">Your daily rhythm</p><h2>Keep the lab moving without chasing details.</h2></div>
+                <div class="rhythm-actions"><div><span>01</span><strong>Review</strong><small>Answer new requests</small></div><div><span>02</span><strong>Hand out</strong><small>Start a borrow</small></div><div><span>03</span><strong>Follow up</strong><small>Bring parts back</small></div></div>
+            </section>
+
+            <section class="teacher-view active" id="overviewView">
+                <div class="feed-column">
+                    <section class="panel composer">
+                        <div class="panel-header">
+                            <div class="panel-title"><i>✦</i> Share with students</div>
+                            <small>Announcements</small>
+                        </div>
+                        <form class="composer-body" id="teacherAnnouncementForm">
+                            <textarea id="teacherAnnouncementText" maxlength="600" placeholder="Share a lab update, deadline, or celebration with your students..."></textarea>
+                            <div class="composer-attachment" data-attachment-preview hidden></div>
+                            <div class="composer-tools-row">
+                                <button class="tool-button" type="button" data-emoji-toggle>😊 Emoji</button>
+                                <button class="tool-button" type="button" data-gif-toggle>GIF</button>
+                                <button class="tool-button" type="button" data-file-trigger>📎 Attach file</button>
+                                <input class="composer-file-input" type="file" data-file-input accept="*/*" aria-label="Attach a file">
+                            </div>
+                            <div class="emoji-panel" data-emoji-panel hidden>
+                                <div class="popup-drag" aria-hidden="true">⋮⋮</div>
+                                <div class="emoji-grid" data-emoji-grid></div>
+                            </div>
+                            <div class="gif-panel" data-gif-panel hidden>
+                                <div class="popup-drag" aria-hidden="true">⋮⋮</div>
+                                <input class="gif-search" type="search" data-gif-search placeholder="Search GIFs..." aria-label="Search GIFs">
+                                <input class="gif-inline" type="url" data-gif-url placeholder="...or paste a GIF link and press Enter">
+                                <div class="gif-grid" data-gif-grid></div>
+                            </div>
+                            <div class="composer-footer">
+                                <span class="limit-note" id="teacherAnnouncementCount">0/20 announcements used today</span>
+                                <button class="post-button" id="teacherPostAnnouncement" type="submit">Post announcement</button>
+                            </div>
+                        </form>
+                    </section>
+                    <div class="feed-filters" id="teacherFeedFilters">
+                        <button class="feed-filter" type="button" data-feed-filter="formal">Formal<span class="feed-badge" data-badge="formal" hidden></span></button>
+                        <button class="feed-filter" type="button" data-feed-filter="informal">Informal<span class="feed-badge" data-badge="informal" hidden></span></button>
+                    </div>
+                    <div class="post-list" id="teacherPostList"></div>
+                </div>
+            </section>
+
+            <section class="teacher-view" id="partsView">
+                <div class="parts-heading">
+                    <p>Check new requests and give students a clear answer.</p>
+                    <div class="queue-stat"><strong id="pendingCount">0</strong><span>awaiting</span></div>
+                </div>
+                <div class="parts-queue-layout">
+                    <div class="decision-queue">
+                    <div class="queue-section-heading"><strong>Ready for review</strong><span>New requests</span></div>
+                        <div class="proposal-feed" id="proposalFeed"></div>
+                    </div>
+                    <aside class="request-history-panel">
+                        <button class="history-panel-heading" id="historyToggle" type="button" aria-expanded="false" aria-controls="historyBackdrop" title="Open full request history">
+                            <span class="history-heading-title"><strong>Request history</strong><small class="history-collapsed-hint"><i aria-hidden="true">⤢</i>Collapsed — click to expand</small></span>
+                            <span class="history-panel-count" id="proposalHistoryCount">0</span>
+                        </button>
+                        <p class="history-panel-desc">Reviewed requests stay here for reference.</p>
+                        <div class="proposal-history-list" id="proposalHistory"></div>
+                    </aside>
+                </div>
+            </section>
+
+            <section class="teacher-view" id="collateralView">
+                <div class="parts-heading">
+                    <p>Give students their approved parts, then keep an eye on what is still out.</p>
+                    <div class="queue-stat"><strong id="awaitingPickupCount">0</strong><span>to hand out</span></div>
+                </div>
+                <div class="collateral-toolbar">
+                    <label class="collateral-search-field"><span>Search</span><input id="collateralSearch" type="search" placeholder="Student, class, part, or request..." aria-label="Search collateral"></label>
+                    <label class="collateral-status-field"><span>Status</span><select id="collateralStatus"><option value="all">All statuses</option><option value="awaiting">Awaiting pickup</option><option value="out">On loan</option><option value="overdue">Overdue</option><option value="returned">Returned</option></select></label>
+                </div>
+                <div id="collateralLists">
+                <div class="collateral-section">
+                    <div class="collateral-title">Awaiting pickup</div>
+                    <div class="collateral-list" id="awaitingList"></div>
+                </div>
+                <div class="collateral-section">
+                    <div class="collateral-title">Currently out</div>
+                    <div class="collateral-list" id="outList"></div>
+                </div>
+                <div class="collateral-section">
+                    <div class="collateral-title">Returned</div>
+                    <div class="collateral-list" id="returnedList"></div>
+                    <small class="collateral-note" id="returnedNote"></small>
+                </div>
+                </div>
+            </section>
+
+            <section class="teacher-view" id="logsView">
+                <div class="parts-heading">
+                    <p>A simple record of every part brought back to the lab.</p>
+                    <div class="queue-stat"><strong id="returnedLogCount">0</strong><span>returned</span></div>
+                </div>
+                <div class="logs-toolbar">
+                    <div class="logs-datenav">
+                        <button id="logsDayPrev" type="button" title="Previous day" aria-label="Previous day">←</button>
+                        <input id="logsDayPicker" type="date" aria-label="Jump to a date">
+                        <button id="logsDayNext" type="button" title="Next day" aria-label="Next day">→</button>
+                        <button id="logsDayAll" class="logs-allbtn" type="button">All days</button>
+                    </div>
+                    <label class="logs-search-field"><span>Search</span><input id="logsSearch" type="search" placeholder="Student, reason, or part..." aria-label="Search logbook"></label>
+                    <label class="logs-filter-field"><span>Filter</span><select id="logsFilter" aria-label="Filter logbook"><option value="all">All returns</option><option value="ontime">Returned on time</option><option value="late">Returned late</option></select></label>
+                </div>
+                <div class="logs-diary" id="logsDiary"></div>
+            </section>
+
+            <section class="teacher-view" id="noticeView">
+                <div class="parts-heading">
+                    <p>A request keeps its borrowed parts for 3, 7, 10, or 14 days. When a borrowed part is not returned by its due date, a warning is sent here automatically. Nothing else happens — no penalties, no locks.</p>
+                </div>
+                <div class="parts-queue-layout">
+                    <div class="decision-queue">
+                        <section class="panel workspace-panel notice-desk">
+                            <div class="panel-header">
+                                <div class="panel-title"><i>⚠</i> Overdue notices</div>
+                                <small>Generated automatically · record kept</small>
+                            </div>
+                            <div class="notice-list" id="teacherNoticeList"></div>
+                        </section>
+                    </div>
+                    <aside class="request-history-panel">
+                        <button class="history-panel-heading" id="noticeHistoryToggle" type="button" aria-expanded="false" aria-controls="noticeHistoryBackdrop" title="Open full notice record">
+                            <span class="history-heading-title"><strong>Notice record</strong><small class="history-collapsed-hint"><i aria-hidden="true">⤢</i>Collapsed — click to expand</small></span>
+                            <span class="history-panel-count" id="noticeHistoryCount">0</span>
+                        </button>
+                        <p class="history-panel-desc">Which students left parts overdue, and for how long. Records stay on file, even after you dismiss them.</p>
+                        <div class="proposal-history-list" id="noticeHistory"></div>
+                    </aside>
+                </div>
+            </section>
+
+            <section class="teacher-view" id="projectsView">
+                <div class="projects-toolbar">
+                    <span class="projects-count" id="projectCount">No projects yet</span>
+                    <button class="new-project-button" id="newProjectButton" type="button">＋ New project</button>
+                </div>
+                <div class="project-list" id="projectList"></div>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal-backdrop" id="historyBackdrop" aria-hidden="true">
+        <section class="modal-panel history-expanded-panel" id="historyExpandedPanel" role="dialog" aria-modal="true" aria-labelledby="historyExpandedTitle">
+            <div class="modal-head">
+                <div>
+                    <p class="eyebrow">Request history</p>
+                    <h2 id="historyExpandedTitle">Reviewed proposals</h2>
+                </div>
+                <button class="modal-close" id="historyClose" type="button" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="history-filter-panel" id="historyFilterPanel">
+                    <label class="history-search-field"><span>Search</span><input id="historySearch" type="search" placeholder="Student, class, or request..." aria-label="Search request history"></label>
+                    <div class="history-filter-grid">
+                        <label><span>Status</span><select id="historyStatus"><option value="all">All reviewed</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="standby">Standby</option></select></label>
+                        <label><span>From</span><input id="historyDateFrom" type="date" aria-label="History from date"></label>
+                        <label><span>To</span><input id="historyDateTo" type="date" aria-label="History to date"></label>
+                    </div>
+                </div>
+                <div class="proposal-history-list" id="proposalHistoryFull"></div>
+            </div>
+        </section>
+    </div>
+
+    <div class="modal-backdrop" id="noticeHistoryBackdrop" aria-hidden="true">
+        <section class="modal-panel history-expanded-panel" id="noticeHistoryExpandedPanel" role="dialog" aria-modal="true" aria-labelledby="noticeHistoryExpandedTitle">
+            <div class="modal-head">
+                <div>
+                    <p class="eyebrow">Notice record</p>
+                    <h2 id="noticeHistoryExpandedTitle">Overdue notice history</h2>
+                </div>
+                <button class="modal-close" id="noticeHistoryClose" type="button" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="history-filter-panel" id="noticeHistoryFilterPanel">
+                    <label class="history-search-field"><span>Search</span><input id="noticeHistorySearch" type="search" placeholder="Student, class, or part..." aria-label="Search notice record"></label>
+                    <div class="history-filter-grid">
+                        <label><span>Kind</span><select id="noticeHistoryKind"><option value="all">All records</option><option value="overdue">Overdue</option><option value="system">System</option></select></label>
+                        <label><span>From</span><input id="noticeHistoryFrom" type="date" aria-label="Notice history from date"></label>
+                        <label><span>To</span><input id="noticeHistoryTo" type="date" aria-label="Notice history to date"></label>
+                    </div>
+                </div>
+                <div class="proposal-history-list" id="noticeHistoryFull"></div>
+            </div>
+        </section>
+    </div>
+
+    <div class="modal-backdrop" id="lendModal" aria-hidden="true">
+        <form class="modal-panel" id="lendForm">
+            <div class="modal-head">
+                <div>
+                    <p class="eyebrow">Lending process</p>
+                    <h2 id="lendTitle">Hand over parts</h2>
+                </div>
+                <button class="modal-close" id="lendClose" type="button" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="lend-summary" id="lendSummary"></p>
+                <ol class="lend-steps">
+                    <li>Unlock the drawer holding each part below and place them on the bench.</li>
+                    <li>Optional — take a photo of the parts before they leave your hands.</li>
+                    <li>Confirm — the student's borrow timer starts the moment you click <strong>Mark as lended</strong>.</li>
+                </ol>
+                <div class="auth-field">
+                    <label for="lendPhoto">Photo of the parts before hand-over <em>(optional)</em></label>
+                    <div class="photo-field">
+                        <input id="lendPhoto" type="file" accept="image/*" capture="environment">
+                        <img id="lendPhotoPreview" class="photo-preview" alt="">
+                    </div>
+                </div>
+                <div class="modal-items" id="lendItems"></div>
+            </div>
+            <div class="modal-foot">
+                <p class="modal-hint">The due date is set from the duration on the student's proposal.</p>
+                <button class="review-button approve" id="lendConfirm" type="submit">Mark as lended →</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="modal-backdrop" id="projectModal" aria-hidden="true">
+        <form class="modal-panel wide" id="projectForm">
+            <div class="modal-head">
+                <div>
+                    <p class="eyebrow">Project proposal</p>
+                    <h2 id="projectModalTitle">New project</h2>
+                </div>
+                <button class="modal-close" id="projectClose" type="button" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-step" data-step="students" id="stepStudents">
+                    <div class="field-label">Pick who should see this project</div>
+                    <input id="studentSearch" type="search" placeholder="Search all students...">
+                    <div class="grade-actions" id="gradeActions">
+                        <button class="grade-button" type="button" data-grade="all">Everyone</button>
+                        <button class="grade-button" type="button" data-grade="6">Grade 6</button>
+                        <button class="grade-button" type="button" data-grade="7">Grade 7</button>
+                        <button class="grade-button" type="button" data-grade="8">Grade 8</button>
+                        <button class="grade-button" type="button" data-grade="9">Grade 9</button>
+                        <button class="grade-button" type="button" data-grade="10">Grade 10</button>
+                        <button class="grade-button" type="button" data-grade="11">Grade 11</button>
+                        <button class="grade-button" type="button" data-grade="12">Grade 12</button>
+                    </div>
+                    <p class="modal-hint">Tap a grade to add every student in it — the class each student entered at sign-up. Combine grades freely.</p>
+                    <div class="student-picker" id="studentPicker"></div>
+                    <div class="chips" id="selectedStudents"></div>
+                </div>
+                <div class="modal-step" data-step="form" id="stepForm">
+                    <div id="editAudience" class="audience-note"></div>
+                    <div class="field-label">Project details</div>
+                    <div class="project-form-grid">
+                        <div class="auth-field"><label for="projectTitle">Project name</label><input id="projectTitle" maxlength="200" placeholder="e.g. Regional Science Fair" required></div>
+                        <div class="auth-field"><label for="projectDate">When is it being held?</label><input id="projectDate" placeholder="e.g. 20 October 2026"></div>
+                        <div class="auth-field"><label for="projectDeadline">Deadline to sign up</label><input id="projectDeadline" type="date"></div>
+                        <div class="auth-field"><label for="projectMakeDeadline">Deadline to make the project</label><input id="projectMakeDeadline" type="date"></div>
+                        <div class="auth-field"><label for="projectLocation">Where is it being held?</label><input id="projectLocation" placeholder="e.g. City auditorium"></div>
+                        <div class="auth-field"><label for="projectTransport">School transport?</label><select id="projectTransport"><option value="">Not sure</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+                        <div class="auth-field"><label for="projectWebsite">Project website</label><input id="projectWebsite" type="url" placeholder="https://example.com"></div>
+                        <div class="auth-field"><label for="projectFunding">Is the school paying?</label><select id="projectFunding"><option value="">Not sure</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
+                        <div class="auth-field full"><label for="projectBrief">Brief — what is it about?</label><textarea id="projectBrief" maxlength="1000" placeholder="A short description students will see before deciding to join..."></textarea></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <p class="modal-hint" id="projectModalHint">Step 1 of 2 — choose who should see this project.</p>
+                <div class="modal-step-actions">
+                    <button class="review-button standby" id="projectBack" type="button">← Back</button>
+                    <button class="new-project-button" id="projectNext" type="button">Next →</button>
+                    <button class="new-project-button" id="projectSubmit" type="submit">Publish →</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div id="teacherToast" class="teacher-toast"></div>
+
+    <div class="lightbox" id="lightbox" aria-hidden="true">
+        <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close">×</button>
+        <img id="lightboxImage" alt="Hand-over photo">
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="social.js?v=4"></script>
+    <script src="teacher.js?v=24"></script>
+</body>
+</html>
