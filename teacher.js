@@ -77,6 +77,9 @@ function primeAudio() {
 
 function playNotificationSound() {
     if (!audioContext) return;
+    /* A tab restored from the background can come back suspended even
+       though it was unlocked earlier, so nudge it before playing. */
+    if (audioContext.state === "suspended") audioContext.resume();
     const now = audioContext.currentTime;
     [523.25, 659.25, 783.99].forEach((frequency, index) => {
         const oscillator = audioContext.createOscillator();
@@ -94,27 +97,144 @@ function playNotificationSound() {
     });
 }
 
+/* Desktop alerts for new part proposals. Browsers only grant this from a
+   user gesture, so the ask is a button rather than a prompt on load. */
+function notificationsSupported() { return "Notification" in window; }
+
+function syncAlertButton() {
+    const button = document.getElementById("teacherAlertButton");
+    if (!button) return;
+    if (!notificationsSupported()) { button.hidden = true; return; }
+    if (Notification.permission === "granted") { button.hidden = true; return; }
+    const label = document.getElementById("teacherAlertLabel");
+    const blocked = Notification.permission === "denied";
+    button.hidden = false;
+    button.classList.toggle("is-blocked", blocked);
+    button.disabled = blocked;
+    if (label) label.textContent = blocked ? "Desktop alerts are blocked" : "Turn on desktop alerts";
+}
+
+async function requestAlerts() {
+    if (!notificationsSupported() || Notification.permission !== "default") { syncAlertButton(); return; }
+    try { await Notification.requestPermission(); } catch (error) { console.error("Alert permission error:", error); }
+    syncAlertButton();
+}
+
+function showDesktopAlert(title, body, tag) {
+    if (!notificationsSupported() || Notification.permission !== "granted") return;
+    /* With the console already in front of the teacher a system popup
+       would only be noise on top of the toast and the chime. */
+    if (!document.hidden) return;
+    try {
+        const alert = new Notification(title, { body, tag: tag || "otter", silent: true });
+        alert.onclick = () => { window.focus(); setTeacherTab("parts"); alert.close(); };
+    } catch (error) { console.error("Desktop alert failed:", error); }
+}
+
+let activeTeacherTab = "overview";
+const teacherTabStats = {};
+
+/* A nav badge counts what has landed since the teacher last opened that
+   tab, not everything still outstanding. Seen ids are kept per tab in
+   localStorage so a reload does not resurrect a badge already cleared. */
+const TEACHER_SEEN_KEY = "otter.teacher.seen.v1";
+const teacherSeen = readTeacherSeen();
+const teacherTabUnseen = {};
+
+function readTeacherSeen() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(TEACHER_SEEN_KEY) || "{}");
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (error) { return {}; }
+}
+
+function writeTeacherSeen() {
+    try { localStorage.setItem(TEACHER_SEEN_KEY, JSON.stringify(teacherSeen)); } catch (error) { /* private mode, nothing to do */ }
+}
+
+function unseenCountFor(tab, items, idOf) {
+    const seen = new Set((teacherSeen[tab] || []).map(String));
+    return items.reduce((total, item) => {
+        const id = idOf(item);
+        return id && !seen.has(String(id)) ? total + 1 : total;
+    }, 0);
+}
+
+/* Opening the tab clears it. Recording the current list also prunes ids
+   that have since left the list, so the store cannot grow forever. */
+function markTabSeen(tab, items, idOf) {
+    teacherSeen[tab] = items.map(idOf).filter(Boolean).map(String);
+    writeTeacherSeen();
+}
+
+function setUnseenCount(tab, count) {
+    teacherTabUnseen[tab] = count;
+    paintNavCounts();
+}
+
+/* Badge shows what arrived while the teacher was elsewhere; looking at the
+   tab marks the list seen, so the badge drops to zero immediately. */
+function refreshUnseenBadge(tab, items, idOf) {
+    if (activeTeacherTab === tab) {
+        markTabSeen(tab, items, idOf);
+        setUnseenCount(tab, 0);
+        return;
+    }
+    setUnseenCount(tab, unseenCountFor(tab, items, idOf));
+}
+
+function paintNavCounts() {
+    document.querySelectorAll("[data-nav-count]").forEach(badge => {
+        const tab = badge.dataset.navCount;
+        const unseen = teacherTabUnseen[tab];
+        /* Tabs that do not track arrivals fall back to their plain count. */
+        const value = typeof unseen === "number" ? unseen : (teacherTabStats[tab] || {}).value;
+        if (typeof value !== "number" || value <= 0) {
+            badge.textContent = "";
+            badge.hidden = true;
+            return;
+        }
+        badge.textContent = value > 99 ? "99+" : String(value);
+        badge.hidden = false;
+    });
+}
+
+function setHeaderStat(tab, value, label) {
+    teacherTabStats[tab] = { value, label };
+    paintNavCounts();
+    if (activeTeacherTab !== tab) return;
+    const valueEl = document.getElementById("teacherHeaderStatValue");
+    const labelEl = document.getElementById("teacherHeaderStatLabel");
+    if (valueEl) valueEl.textContent = value;
+    if (labelEl) labelEl.textContent = label;
+}
+
 function setTeacherTab(tabName) {
     document.querySelectorAll("[data-tab]").forEach(button => button.classList.toggle("active", button.dataset.tab === tabName));
     document.querySelectorAll(".teacher-view").forEach(view => view.classList.toggle("active", view.id === `${tabName}View`));
+    activeTeacherTab = tabName;
+    window.scrollTo({ top: 0, behavior: "auto" });
     const titles = {
-        overview: ["Good day,", currentUser?.name || "teacher", "Here is what your students are sharing."],
+        overview: ["Overview", "today", "Here is what your students are sharing."],
         parts: ["Part requests", "queue", "Review parts proposals and keep the lab moving."],
         collateral: ["Collateral", "desk", "Hand out approved parts and track everything on loan."],
         logs: ["Lab logs", "record", "Every part that has been handed out and returned."],
         notice: ["Overdue", "notices", "Overdue borrow notices appear here automatically."],
-        projects: ["Project proposals", "studio", "Publish build events and keep an eye on student team builds."]
+        projects: ["Project proposals", "studio", "Publish build events and keep an eye on student team builds."],
+        labTimings: ["Lab timings", "timetable", "Set when the lab is open. Students see this on their dashboard."]
     };
     const [lead, accent, description] = titles[tabName];
     document.getElementById("teacherLead").textContent = lead;
     document.getElementById("teacherAccent").textContent = accent;
     document.getElementById("teacherDescription").textContent = description;
+    setHeaderStat(tabName, "—", "loading");
     if (tabName === "overview") updateTeacherPostLimit();
     if (tabName === "parts") loadProposals();
     if (tabName === "collateral") loadCollateral();
     if (tabName === "logs") loadLogs();
     if (tabName === "notice") { loadNoticeData(); loadStudents(); }
     if (tabName === "projects") { loadProjects(); }
+    if (tabName === "labTimings") loadLabTimings();
 }
 
 /* ---------------- Announcements (overview) ---------------- */
@@ -220,6 +340,7 @@ async function updateTeacherPostLimit() {
     const used = count || 0;
     document.getElementById("teacherAnnouncementCount").textContent = `${used}/20 announcements used today`;
     document.getElementById("teacherPostAnnouncement").disabled = used >= 20;
+    setHeaderStat("overview", used, used === 1 ? "announcement today" : "announcements today");
 }
 
 async function createTeacherAnnouncement(event) {
@@ -362,7 +483,8 @@ function renderProposals() {
     const feed = document.getElementById("proposalFeed");
     const visible = visibleProposals();
     const reviewed = proposals.filter(proposal => proposal.status !== "pending");
-    document.getElementById("pendingCount").textContent = visible.length;
+    setHeaderStat("parts", visible.length, "awaiting decision");
+    refreshUnseenBadge("parts", visible, proposal => proposal.id);
     document.getElementById("proposalHistoryCount").textContent = reviewed.length;
 
     if (!proposals.length) {
@@ -523,7 +645,8 @@ function renderCollateral() {
     const awaiting = filtered.filter(isCollateralAwaiting);
     const out = filtered.filter(isCollateralOut);
     const returned = filtered.filter(isCollateralReturned);
-    document.getElementById("awaitingPickupCount").textContent = collateralProposals.filter(isCollateralAwaiting).length;
+    setHeaderStat("collateral", collateralProposals.filter(isCollateralAwaiting).length, "to hand out");
+    refreshUnseenBadge("collateral", collateralProposals.filter(isCollateralAwaiting), proposal => proposal.id);
     renderCollateralSection("awaitingList", awaiting, "awaiting");
     renderCollateralSection("outList", out, "out");
     const latestReturned = status === "returned" ? returned : [...returned].sort((a, b) => new Date(b.returned_at) - new Date(a.returned_at)).slice(0, 1);
@@ -737,7 +860,7 @@ function addDaysTo(value, days) {
 
 function renderLogs() {
     const diary = document.getElementById("logsDiary");
-    document.getElementById("returnedLogCount").textContent = logRows.length;
+    setHeaderStat("logs", logRows.length, "returned");
     const search = (document.getElementById("logsSearch").value || "").trim().toLowerCase();
     const filter = document.getElementById("logsFilter").value;
     const picker = document.getElementById("logsDayPicker");
@@ -902,6 +1025,7 @@ async function loadNoticeData() {
 async function renderTeacherNotices(listToRender) {
     const list = document.getElementById("teacherNoticeList");
     const notices = listToRender || teacherNotices;
+    setHeaderStat("notice", notices.length, notices.length === 1 ? "open notice" : "open notices");
     if (!notices.length) {
         list.innerHTML = `<div class="empty-state compact-empty"><strong>No overdue notices</strong><p>When a borrowed part is not returned by its due date, a notice is sent here automatically.</p></div>`;
         return;
@@ -999,14 +1123,67 @@ async function syncOverdueState() {
 
 const detailTag = (label, value) => value ? `<div class="project-detail"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>` : "";
 
+const PROJECT_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
+
+function isoStamp(year, month, day) {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const probe = new Date(Date.UTC(year, month - 1, day));
+    if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function todayStamp() {
+    const now = effectiveTeacherNow();
+    return isoStamp(now.getFullYear(), now.getMonth() + 1, now.getDate());
+}
+
+function projectLimitDate(project) {
+    const raw = String(project?.held_date || "").trim();
+    if (raw) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        const text = raw.toLowerCase().replace(/[.,]/g, " ").replace(/\s+/g, " ");
+        const dayFirst = text.match(/(\d{1,2})(?:st|nd|rd|th)? ([a-z]{3,9}) (\d{4})/);
+        const monthFirst = text.match(/([a-z]{3,9}) (\d{1,2})(?:st|nd|rd|th)? (\d{4})/);
+        const numeric = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+        if (dayFirst && PROJECT_MONTHS[dayFirst[2].slice(0, 3)] !== undefined) {
+            const stamp = isoStamp(Number(dayFirst[3]), PROJECT_MONTHS[dayFirst[2].slice(0, 3)] + 1, Number(dayFirst[1]));
+            if (stamp) return stamp;
+        }
+        if (monthFirst && PROJECT_MONTHS[monthFirst[1].slice(0, 3)] !== undefined) {
+            const stamp = isoStamp(Number(monthFirst[3]), PROJECT_MONTHS[monthFirst[1].slice(0, 3)] + 1, Number(monthFirst[2]));
+            if (stamp) return stamp;
+        }
+        if (numeric) {
+            const stamp = isoStamp(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+            if (stamp) return stamp;
+        }
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) return isoStamp(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+    }
+    return [project?.make_deadline, project?.deadline].find(value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) || null;
+}
+
+function isProjectArchived(project) {
+    const limit = projectLimitDate(project);
+    return !!limit && limit < todayStamp();
+}
+
 function renderProjects() {
     const list = document.getElementById("projectList");
-    document.getElementById("projectCount").textContent = allProjects.length ? `${allProjects.length} project${allProjects.length === 1 ? "" : "s"} published` : "No projects yet";
-    if (!allProjects.length) {
-        list.innerHTML = `<div class="empty-state"><strong>No projects published yet</strong><p>Create your first project and invite students to it.</p></div>`;
+    const active = allProjects.filter(project => !isProjectArchived(project));
+    const archived = allProjects.filter(project => isProjectArchived(project));
+    document.getElementById("projectCount").textContent = active.length ? `${active.length} project${active.length === 1 ? "" : "s"} published` : "No projects yet";
+    setHeaderStat("projects", active.length, active.length === 1 ? "open project" : "open projects");
+    refreshUnseenBadge("projects", active, project => project.id);
+    if (!active.length) {
+        list.innerHTML = archived.length
+            ? `<div class="empty-state"><strong>No projects open</strong><p>${archived.length} project${archived.length === 1 ? " is" : "s are"} waiting in the history box. Anything you publish shows up here.</p></div>`
+            : `<div class="empty-state"><strong>No projects published yet</strong><p>Create your first project and invite students to it.</p></div>`;
+        renderProjectHistory(archived);
         return;
     }
-    list.innerHTML = allProjects.map(project => {
+    list.innerHTML = active.map(project => {
         const invited = Array.isArray(project.invited_students) ? project.invited_students : [];
         const interests = allInterests.filter(interest => interest.project_id === project.id);
         const own = project.teacher_id === currentUser.id;
@@ -1031,6 +1208,35 @@ function renderProjects() {
             ${renderNoiseShares(project.id)}
         </article>`;
     }).join("");
+    renderProjectHistory(archived);
+}
+
+function projectHistoryRow(project) {
+    const invited = Array.isArray(project.invited_students) ? project.invited_students.length : 0;
+    return `
+        <article class="history-row">
+            <div><strong>${escapeHtml(project.title)}</strong><small>${escapeHtml(project.teacher_name || "Teacher")}${project.location ? ` · ${escapeHtml(project.location)}` : ""} · ${invited} student${invited === 1 ? "" : "s"}</small><span>${escapeHtml(project.brief || "No brief given.")}</span></div>
+            <div><b class="history-status archived">Ended</b><small>${escapeHtml(formatDay(projectLimitDate(project)))}</small></div>
+        </article>`;
+}
+
+function renderProjectHistory(archived) {
+    const search = document.getElementById("projectHistorySearch").value.trim().toLowerCase();
+    const from = document.getElementById("projectHistoryDateFrom").value;
+    const to = document.getElementById("projectHistoryDateTo").value;
+    const filtered = archived.filter(project => {
+        const searchable = [project.title, project.teacher_name, project.location, project.brief].join(" ").toLowerCase();
+        const limit = projectLimitDate(project) || "";
+        return (!search || searchable.includes(search))
+            && (!from || limit >= from)
+            && (!to || limit <= to);
+    });
+    const empty = `<div class="history-empty">${archived.length ? "No matching history." : "Nothing in the history box yet."}</div>`;
+    const preview = document.getElementById("projectHistory");
+    if (preview) preview.innerHTML = filtered.length ? filtered.slice(0, 5).map(projectHistoryRow).join("") : empty;
+    const full = document.getElementById("projectHistoryFull");
+    if (full) full.innerHTML = filtered.length ? filtered.map(projectHistoryRow).join("") : empty;
+    document.getElementById("projectHistoryCount").textContent = archived.length;
 }
 
 async function loadProjects() {
@@ -1294,11 +1500,31 @@ async function deleteProject(projectId) {
 /* ---------------- Events ---------------- */
 
 document.querySelectorAll("[data-tab]").forEach(button => button.addEventListener("click", () => setTeacherTab(button.dataset.tab)));
+
+const TEACHER_TAB_ORDER = ["overview", "parts", "collateral", "logs", "notice", "projects"];
+document.addEventListener("keydown", event => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const tag = (event.target && event.target.tagName) || "";
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) || (event.target && event.target.isContentEditable)) return;
+    if (document.querySelector(".modal-panel.open")) return;
+    if (event.key === "/") {
+        const firstField = document.querySelector(".teacher-view.active input:not([type=hidden]), .teacher-view.active textarea, .teacher-view.active select");
+        if (firstField) { event.preventDefault(); firstField.focus(); }
+        return;
+    }
+    const index = Number(event.key) - 1;
+    if (Number.isInteger(index) && index >= 0 && index < TEACHER_TAB_ORDER.length) {
+        event.preventDefault();
+        setTeacherTab(TEACHER_TAB_ORDER[index]);
+    }
+});
 document.getElementById("teacherSignOut").addEventListener("click", async () => {
     await supabaseClient.auth.signOut();
     window.location.href = "index.html";
 });
 document.addEventListener("pointerdown", primeAudio, { capture: true });
+document.getElementById("teacherAlertButton").addEventListener("click", requestAlerts);
+syncAlertButton();
 
 document.getElementById("teacherAnnouncementForm").addEventListener("submit", createTeacherAnnouncement);
 Social.initComposer(document.getElementById("teacherAnnouncementForm"), { onNotice: showToast });
@@ -1433,6 +1659,29 @@ document.getElementById("noticeHistoryBackdrop").addEventListener("click", event
     document.getElementById(id).addEventListener("change", renderNoticeHistory);
 });
 
+function openProjectHistoryModal() {
+    const backdrop = document.getElementById("projectHistoryBackdrop");
+    document.getElementById("projectHistoryToggle").setAttribute("aria-expanded", "true");
+    backdrop.classList.add("open");
+    backdrop.setAttribute("aria-hidden", "false");
+    renderProjectHistory(allProjects.filter(project => isProjectArchived(project)));
+}
+
+function closeProjectHistoryModal() {
+    const backdrop = document.getElementById("projectHistoryBackdrop");
+    document.getElementById("projectHistoryToggle").setAttribute("aria-expanded", "false");
+    backdrop.classList.remove("open");
+    backdrop.setAttribute("aria-hidden", "true");
+}
+
+document.getElementById("projectHistoryToggle").addEventListener("click", openProjectHistoryModal);
+document.getElementById("projectHistoryClose").addEventListener("click", closeProjectHistoryModal);
+document.getElementById("projectHistoryBackdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeProjectHistoryModal(); });
+["projectHistorySearch", "projectHistoryDateFrom", "projectHistoryDateTo"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => renderProjectHistory(allProjects.filter(project => isProjectArchived(project))));
+    document.getElementById(id).addEventListener("change", () => renderProjectHistory(allProjects.filter(project => isProjectArchived(project))));
+});
+
 document.getElementById("newProjectButton").addEventListener("click", () => openProjectModal());
 document.getElementById("projectClose").addEventListener("click", closeProjectModal);
 document.getElementById("projectModal").addEventListener("click", event => { if (event.target === event.currentTarget) closeProjectModal(); });
@@ -1525,6 +1774,176 @@ document.getElementById("projectList").addEventListener("click", event => {
     if (button.dataset.projectAction === "delete") deleteProject(project.id);
 });
 
+/* ---------------- Lab timings ---------------- */
+
+let loadLabTimings = async function () {};
+
+function initLabTimings() {
+    const Lab = window.OtterLab;
+    if (!Lab) return;
+
+    Lab.init({
+        mode: "teacher",
+        supabase: supabaseClient,
+        now: effectiveTeacherNow
+    });
+
+    const el = id => document.getElementById(id);
+    const grid = el("labDayGrid");
+    const periodList = el("labPeriodList");
+    const timetableGrid = el("labTimetableGrid");
+    if (!grid || !periodList) return;
+
+    function render() {
+        el("labMonthLabel").textContent = Lab.monthTitle(Lab.state.year, Lab.state.month);
+
+        const stamp = Lab.state.selected;
+        const parts = stamp ? Lab.splitStamp(stamp) : null;
+        if (stamp) {
+            const status = Lab.classifyDay(stamp);
+            const isWeekend = status === Lab.DAY_WEEKEND;
+            /* The holiday state comes from the draft, not from classifyDay:
+               a teacher who has just flipped the switch but not yet published
+               still needs the panel to show the holiday layout. */
+            const isHoliday = Lab.state.holidayDraft;
+            /* Read the name off the draft, not off the saved holidays map:
+               a holiday the teacher has just switched on has not been
+               published yet, so the map has nothing to give us. */
+            const holidayName = (Lab.state.holidayNameDraft || "").trim() || "Holiday";
+            el("labDayTitle").textContent = Lab.formatLong(stamp);
+            el("labDaySubtitle").textContent = isWeekend ? "Weekend — not a teaching day."
+                : isHoliday ? `Holiday — ${holidayName}.`
+                : status === Lab.DAY_OPEN ? `Lab open · ${Lab.describeOpenPeriods(Lab.openPeriodsFor(stamp), Lab.state.periods)}`
+                : "No lab published for this day.";
+
+            el("labPeriodList").hidden = isWeekend || isHoliday;
+            el("labBulk").hidden = isWeekend || isHoliday;
+            el("labDayActions").hidden = false;
+            el("labHolidayToggle").hidden = isWeekend;
+            el("labHolidayName").hidden = isWeekend || !Lab.state.holidayDraft;
+
+            if (isWeekend) {
+                periodList.innerHTML = `<div class="empty-state"><strong>Weekend</strong><p>${parts.day} ${Lab.MONTH_NAMES[parts.month - 1]} is a ${Lab.weekdayOf(stamp) === 6 ? "Saturday" : "Sunday"}, so the lab is closed and nothing can be published.</p></div>`;
+            } else if (isHoliday) {
+                periodList.innerHTML = `<div class="empty-state"><strong>Holiday</strong><p>The whole day is off, so there are no periods to set. Students see this day greyed out.</p></div>`;
+            } else {
+                Lab.renderPeriodList(periodList, { editable: true, draft: Lab.state.draft });
+            }
+
+            el("labHolidaySwitch").setAttribute("aria-checked", String(Lab.state.holidayDraft));
+            el("labHolidayToggle").classList.toggle("is-on", Lab.state.holidayDraft);
+            el("labHolidayHint").textContent = Lab.state.holidayDraft
+                ? `Marked as ${(Lab.state.holidayNameDraft || "").trim() || "a holiday"}. Students see this day greyed out.`
+                : "A holiday is a full day off. The lab is closed and students see it greyed out.";
+            if (el("labHolidayLabel").value !== Lab.state.holidayNameDraft && document.activeElement !== el("labHolidayLabel")) {
+                el("labHolidayLabel").value = Lab.state.holidayNameDraft;
+            }
+            el("labSaveDay").disabled = isWeekend;
+            el("labClearDay").disabled = isWeekend;
+        } else {
+            el("labDayTitle").textContent = "No day selected";
+            el("labDaySubtitle").textContent = "Pick a date from the calendar.";
+            periodList.innerHTML = "";
+            el("labDayActions").hidden = true;
+        }
+
+        el("labSaveNote").textContent = Lab.state.dirty
+            ? "Unsaved changes on this day."
+            : "Changes save as soon as you publish the day.";
+
+        const upcoming = Lab.nextLabDay(Lab.todayStamp());
+        el("labCalendarHint").textContent = upcoming
+            ? `Pick a day to set the lab timings for it. Next lab day: ${Lab.formatShort(upcoming)}.`
+            : "Pick a day to set the lab timings for it. No lab days are published yet.";
+
+        /* Header stat: how many lab days are on in the month on screen, so
+           the count always matches the calendar being looked at. */
+        const openThisMonth = Lab.monthGrid(Lab.state.year, Lab.state.month)
+            .filter(day => day && Lab.classifyDay(day) === Lab.DAY_OPEN).length;
+        setHeaderStat("labTimings", openThisMonth, openThisMonth === 1 ? "lab day this month" : "lab days this month");
+
+        Lab.renderCalendar(grid);
+        /* A realtime timetable change must not wipe a field mid-keystroke. */
+        if (!timetableGrid.contains(document.activeElement)) Lab.renderTimetableGrid(timetableGrid);
+    }
+
+    async function reload(selectStamp) {
+        await Lab.loadData();
+        if (selectStamp) Lab.selectDay(selectStamp);
+        render();
+    }
+
+    grid.addEventListener("click", event => {
+        const button = event.target.closest("[data-lab-stamp]");
+        if (!button) return;
+        Lab.selectDay(button.dataset.labStamp);
+        render();
+    });
+
+    el("labPrevMonth").addEventListener("click", () => { Lab.moveMonth(-1); render(); });
+    el("labNextMonth").addEventListener("click", () => { Lab.moveMonth(1); render(); });
+    el("labToday").addEventListener("click", () => {
+        const parts = Lab.splitStamp(Lab.todayStamp());
+        Lab.showMonth(parts.year, parts.month);
+        Lab.selectDay(Lab.todayStamp());
+        render();
+    });
+
+    el("labBulk").addEventListener("click", event => {
+        const button = event.target.closest("[data-lab-all]");
+        if (!button) return;
+        Lab.setAllPeriods(button.dataset.labAll === "open");
+        render();
+    });
+
+    periodList.addEventListener("click", event => {
+        const button = event.target.closest("[data-lab-period]");
+        if (!button) return;
+        Lab.togglePeriod(Number(button.dataset.labPeriod));
+        render();
+    });
+
+    el("labHolidaySwitch").addEventListener("click", () => {
+        Lab.setHolidayDraft(!Lab.state.holidayDraft, Lab.state.holidayNameDraft);
+        render();
+    });
+
+    el("labHolidayLabel").addEventListener("input", event => {
+        Lab.state.holidayNameDraft = event.target.value;
+    });
+
+    el("labSaveDay").addEventListener("click", async () => {
+        const result = await Lab.saveDay();
+        if (result.ok) { showToast("Lab timings published"); render(); return; }
+        showToast(result.missing
+            ? "Run the lab timings SQL migration first"
+            : result.validation || "Could not publish that day");
+        if (result.missing) console.error("Lab timings migration missing:", result.error);
+    });
+
+    el("labClearDay").addEventListener("click", async () => {
+        const result = await Lab.clearDay();
+        if (result.ok) { showToast("Day cleared"); render(); return; }
+        showToast(result.missing ? "Run the lab timings SQL migration first" : "Could not clear that day");
+    });
+
+    el("labSavePeriods").addEventListener("click", async () => {
+        const result = await Lab.savePeriods(timetableGrid);
+        if (result.ok) { showToast("Timetable saved"); render(); return; }
+        showToast(result.missing ? "Run the lab timings SQL migration first" : result.validation || "Could not save the timetable");
+    });
+
+    el("labSaveDay").disabled = false;
+
+    loadLabTimings = async function () { await reload(); };
+    Lab.subscribe(() => reload());
+
+    reload().then(() => {
+        Lab.selectDay(Lab.todayStamp());
+        render();
+    });
+}
+
 /* ---------------- Init ---------------- */
 
 async function loadTestClockState() {
@@ -1537,20 +1956,8 @@ async function loadTestClockState() {
     renderTeacherSimBanner();
 }
 function renderTeacherSimBanner() {
-    let banner = document.getElementById("teacherSimBanner");
-    if (!simClock.simulated_at) {
-        if (banner) banner.remove();
-        return;
-    }
-    if (!banner) {
-        banner = document.createElement("div");
-        banner.id = "teacherSimBanner";
-        banner.className = "sim-clock-banner teacher";
-        banner.setAttribute("role", "status");
-        document.body.prepend(banner);
-    }
-    const shown = new Date(simClock.simulated_at);
-    banner.innerHTML = `<strong>TEST CLOCK ACTIVE</strong> · displayed "today" is <strong>${escapeHtml(shown.toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" }))}</strong>${simClock.label ? ` — ${escapeHtml(simClock.label)}` : ""} <small>(set by the admin test clock — due dates and overdue notices honor this simulated date)</small>`;
+    const banner = document.getElementById("teacherSimBanner");
+    if (banner) banner.remove();
 }
 async function refreshTeacherSimClock() {
     await loadTestClockState();
@@ -1571,16 +1978,27 @@ async function initialiseTeacher() {
     const displayName = user.user_metadata?.full_name || user.email?.split("@")[0] || "Teacher";
     currentUser.name = displayName;
     document.getElementById("teacherIdentity").textContent = displayName;
-    document.getElementById("teacherChip").textContent = displayName;
+    initLabTimings();
     setTeacherTab("overview");
+    if (window.OtterTutorial) {
+        OtterTutorial.autostart("teacher", {
+            theme: "light",
+            onNavigate: step => { if (step.go) setTeacherTab(step.go); }
+        });
+    }
     await syncOverdueState();
-    await Promise.all([loadTeacherAnnouncements(), updateTeacherPostLimit()]);
+    /* Prime the three arrival badges up front. Without this they stay empty
+       until the teacher clicks into each tab, so a proposal that arrived
+       while they were away would never raise a badge on a fresh load. */
+    await Promise.all([loadTeacherAnnouncements(), updateTeacherPostLimit(), loadProposals(), loadCollateral(), loadProjects()]);
 
     supabaseClient.channel("teacher-proposal-feed")
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "part_proposals" }, payload => {
+            const who = payload.new?.student_name || "A student";
             primeAudio();
             playNotificationSound();
-            showToast(`New proposal from ${payload.new?.student_name || "a student"}`);
+            showToast(`New proposal from ${who}`);
+            showDesktopAlert("New part proposal", `${who} sent a part request.`, `otter-proposal-${payload.new?.id}`);
             loadProposals();
         })
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "part_proposals" }, () => { loadProposals(); loadCollateral(); loadLogs(); })

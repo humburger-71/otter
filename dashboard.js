@@ -1,10 +1,20 @@
 const SUPABASE_URL = "https://xwawghxsebspjonkxafm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3YXdnaHhzZWJzcGpvbmt4YWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0NzE4MDEsImV4cCI6MjEwMzA0NzgwMX0.Qht29UsrW-XXUkXDEqJvw00AHKdnjswNPwRHg78vIz4";
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* A blocked or offline CDN must not leave the page dead */
+let supabaseClient = null;
+try {
+    if (window.supabase && typeof window.supabase.createClient === "function") {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+} catch (error) {
+    console.error("Supabase client failed to start", error);
+}
 
 let currentUser = null;
 
 let projectById = {};
+let studentArchivedProjects = [];
 let allShares = [];
 let sharedToMe = [];
 let allClassmates = [];
@@ -37,6 +47,7 @@ let partCategoryOptions = [];
 let borrowLogs = [];
 let receiptTimer = null;
 let activeReceiptId = null;
+let refreshing = false;
 
 function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>'"]/g, character => ({
@@ -45,10 +56,11 @@ function escapeHtml(value) {
 }
 
 function initialsFor(name) {
-    return name.split(" ").filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "ST";
+    return String(name || "").split(" ").filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "ST";
 }
 
 function formatTime(value) {
+    if (!value) return "—";
     const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
     if (seconds < 60) return "Just now";
     if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
@@ -58,6 +70,7 @@ function formatTime(value) {
 
 function showToast(message) {
     const toast = document.getElementById("dashboardToast");
+    if (!toast) return;
     toast.textContent = message;
     toast.classList.add("show");
     clearTimeout(showToast.timer);
@@ -68,6 +81,57 @@ function partItemCount(loan) {
     const items = Array.isArray(loan.items) ? loan.items : [];
     return items.reduce((total, item) => total + (Number(item.quantity) || 0), 0) || items.length;
 }
+
+
+/* ========================================================================
+   MODALS
+   One open/close path: scroll lock, focus return, Escape to dismiss.
+   ======================================================================== */
+
+const MODAL_CLOSERS = {
+    proposeModal: closeProposeModal,
+    receiptModal: closeReceipt,
+    projectHistoryBackdrop: closeProjectHistoryModal,
+    inviteModal: () => closeModal("inviteModal")
+};
+
+let lastFocused = null;
+
+function openModal(id) {
+    const backdrop = document.getElementById(id);
+    if (!backdrop) return;
+    lastFocused = document.activeElement;
+    backdrop.classList.add("open");
+    backdrop.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    const firstField = backdrop.querySelector("input, textarea, select, button:not(.modal-close)");
+    if (firstField) setTimeout(() => firstField.focus({ preventScroll: true }), 90);
+}
+
+function closeModal(id) {
+    const backdrop = document.getElementById(id);
+    if (!backdrop) return;
+    backdrop.classList.remove("open");
+    backdrop.setAttribute("aria-hidden", "true");
+    if (!document.querySelector(".modal-backdrop.open")) document.body.style.overflow = "";
+    if (lastFocused && typeof lastFocused.focus === "function") lastFocused.focus({ preventScroll: true });
+    lastFocused = null;
+}
+
+function closeTopModal() {
+    const open = [...document.querySelectorAll(".modal-backdrop.open")].pop();
+    if (!open) return true;
+    const closer = MODAL_CLOSERS[open.id];
+    if (closer) closer();
+    else closeModal(open.id);
+    return false;
+}
+
+document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    closeTopModal();
+});
+
 
 async function loadOverviewMetrics() {
     if (!currentUser) return;
@@ -99,7 +163,7 @@ function renderPosts(posts) {
         <article class="post-card ${formal ? "teacher-important" : "informal"}" data-post-id="${escapeHtml(post.id)}">
             <div class="post-meta">
                 <div class="post-author-avatar" style="background:${escapeHtml(post.author_color || "#c8f36d")}">${escapeHtml(post.author_initials)}</div>
-                <div class="post-author"><strong>${escapeHtml(post.author_name)}</strong><small>${escapeHtml(formatTime(post.created_at))}</small></div>
+                <div class="post-author"><strong>${escapeHtml(post.author_name)}</strong><small>${escapeHtml(formatTime(post.created_at))}</small>${formal ? `<span class="post-tag">Notice</span>` : ""}</div>
             </div>
             ${post.body ? `<p>${escapeHtml(post.body)}</p>` : ""}
             ${Social.attachmentHtml(post, escapeHtml)}
@@ -125,6 +189,7 @@ function renderPosts(posts) {
 }
 
 async function loadAnnouncements() {
+    if (!currentUser) return;
     const { data: announcements, error: announcementsError } = await supabaseClient
         .from("announcements")
         .select("id, author_id, author_name, author_initials, author_color, body, tag, author_role, attachment_url, attachment_type, attachment_name, created_at")
@@ -243,18 +308,38 @@ function renderCart() {
         <div class="cart-item" data-part-id="${escapeHtml(entry.part.id)}">
             <div class="cart-item-info"><strong>${escapeHtml(entry.part.name)}</strong><small>${escapeHtml(entry.part.category)}</small></div>
             <div class="cart-item-controls">
-                <button class="cart-step" data-cart-action="decrement" type="button">−</button>
+                <button class="cart-step" data-cart-action="decrement" type="button" aria-label="Remove one">−</button>
                 <span class="cart-count">${entry.quantity}</span>
-                <button class="cart-step" data-cart-action="increment" type="button">+</button>
-                <button class="cart-remove" data-cart-action="remove" type="button">×</button>
+                <button class="cart-step" data-cart-action="increment" type="button" aria-label="Add one">+</button>
+                <button class="cart-remove" data-cart-action="remove" type="button" aria-label="Remove part">×</button>
             </div>
         </div>
     `).join("") : `<div class="empty-state compact-empty"><strong>Cart is empty</strong><p>Add parts from the registry to start a proposal.</p></div>`;
 }
 
+/* ---------------- Tabs ---------------- */
+
+const TABS = {
+    overview: { section: "Dashboard" },
+    partProposal: { section: "Part requests" },
+    borrowLogs: { section: "Borrow logs" },
+    projectProposal: { section: "Projects" },
+    labTimings: { section: "Lab timings" }
+};
+
 function setActiveTab(tabName) {
-    document.querySelectorAll("[data-tab]").forEach(button => button.classList.toggle("active", button.dataset.tab === tabName));
+    if (!TABS[tabName]) return;
+
+    document.querySelector(".page-heading")?.setAttribute("data-watermark", tabName);
+
+    document.querySelectorAll("[data-tab]").forEach(button => {
+        const isActive = button.dataset.tab === tabName;
+        button.classList.toggle("active", isActive);
+        if (isActive) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+    });
     document.querySelectorAll(".tab-view").forEach(view => view.classList.toggle("active", view.id === `${tabName}View`));
+
     const resetScroll = () => {
         window.scrollTo(0, 0);
         document.documentElement.scrollTop = 0;
@@ -262,16 +347,19 @@ function setActiveTab(tabName) {
     };
     resetScroll();
     requestAnimationFrame(resetScroll);
+
     const titles = {
-        overview: ["Good morning,", currentUser?.name || "student", "Your lab community is moving."],
-        partProposal: ["Part proposal", "requests", "Keep your component requests organized and easy to review."],
-        borrowLogs: ["Borrow logs", "activity", "A clear trail of every item that leaves the lab."],
-        projectProposal: ["Project proposals", "workspace", "Shape your next build, team up with friends, and keep it ready for the lab."]
+        overview: ["Good morning,", currentUser?.name || "student", "Everything the lab has going on for you today."],
+        partProposal: ["Part request", "workshop", "Search the registry, build your cart, and send one tidy proposal."],
+        borrowLogs: ["Borrow", "trail", "Every part that has left the lab, with receipts and return dates."],
+        projectProposal: ["Project", "proposals", "Follow the events your teachers run, then bring friends along."],
+        labTimings: ["Lab", "timings", "See which periods the lab is open, and when it is closed."]
     };
     const [lead, accent, description] = titles[tabName];
     document.getElementById("pageLead").textContent = lead;
     document.getElementById("pageAccent").textContent = accent;
     document.getElementById("pageDescription").textContent = description;
+    document.title = `Otter — ${TABS[tabName].section}`;
 
     if (tabName === "partProposal") {
         loadInventoryParts();
@@ -283,6 +371,11 @@ function setActiveTab(tabName) {
     if (tabName === "borrowLogs") {
         loadBorrowLogs();
     }
+    if (tabName === "overview") {
+        loadOverviewMetrics();
+        loadDeadlines();
+    }
+    if (tabName === "labTimings") loadLabTimings();
 }
 
 function openProposeModal() {
@@ -292,14 +385,11 @@ function openProposeModal() {
         <div class="modal-item"><strong>${escapeHtml(entry.part.name)}</strong><span>× ${entry.quantity}</span></div>
     `).join("");
     document.getElementById("proposeReason").value = "";
-    document.getElementById("proposeModal").classList.add("open");
-    document.getElementById("proposeModal").setAttribute("aria-hidden", "false");
-    document.getElementById("proposeReason").focus();
+    openModal("proposeModal");
 }
 
 function closeProposeModal() {
-    document.getElementById("proposeModal").classList.remove("open");
-    document.getElementById("proposeModal").setAttribute("aria-hidden", "true");
+    closeModal("proposeModal");
 }
 
 function statusLabel(status) {
@@ -329,20 +419,25 @@ async function loadMyProposals() {
     list.innerHTML = proposals.slice(0, 3).map(proposal => {
         const items = Array.isArray(proposal.items) ? proposal.items : [];
         return `
-        <div class="request-row" data-proposal-id="${escapeHtml(proposal.id)}">
-            <div>
+        <button class="request-row" type="button" data-goto-tab="borrowLogs">
+            <span>
                 <strong>${escapeHtml(proposal.reason)}</strong>
                 <small>${proposalAge(proposal.created_at)} · ${escapeHtml(proposal.duration_days)} day${proposal.duration_days === 1 ? "" : "s"}${proposal.reviewed_note ? ` · ${escapeHtml(proposal.reviewed_note)}` : ""}</small>
-                <div class="request-items">${items.map(item => `${escapeHtml(item.name)} × ${item.quantity}`).join(" · ") || "No items"}</div>
-            </div>
+                <span class="request-items">${items.map(item => `${escapeHtml(item.name)} × ${item.quantity}`).join(" · ") || "No items"}</span>
+            </span>
             <span class="request-status ${escapeHtml(proposal.status)}">${statusLabel(proposal.status)}</span>
-        </div>`;
+        </button>`;
     }).join("");
 }
 
 /* ---------------- Borrow logs ---------------- */
 
 const borrowStatusLabel = proposal => proposal.returned_at ? "Returned" : proposal.lent_at ? "With you" : proposal.status === "approved" ? "Ready to collect" : statusLabel(proposal.status);
+
+function isBorrowOverdue(proposal) {
+    if (!proposal.due_at || proposal.returned_at || !proposal.lent_at) return false;
+    return new Date(proposal.due_at).getTime() < clockNow().getTime();
+}
 
 function borrowTimeLeft(proposal) {
     if (!proposal.due_at || proposal.returned_at) return "";
@@ -354,6 +449,7 @@ function borrowTimeLeft(proposal) {
 }
 
 async function loadBorrowLogs() {
+    if (!currentUser) return;
     const { data, error } = await supabaseClient
         .from("part_proposals")
         .select("id, student_id, reason, duration_days, items, status, reviewed_note, reviewed_at, created_at, lent_at, due_at, returned_at, photo_url, return_note")
@@ -385,11 +481,13 @@ function renderBorrowLogs() {
     const filtered = borrowLogs.filter(proposal => {
         const items = Array.isArray(proposal.items) ? proposal.items : [];
         const searchable = [proposal.reason, proposal.status, ...items.map(item => item.name)].join(" ").toLowerCase();
-        const createdDate = proposal.created_at.slice(0, 10);
+        const createdDate = String(proposal.created_at || "").slice(0, 10);
+        const statusMatch = status === "all"
+            || (status === "overdue" ? isBorrowOverdue(proposal) : borrowFilterStatus(proposal) === status);
         return (!search || searchable.includes(search))
-            && (status === "all" || borrowFilterStatus(proposal) === status)
-            && (!from || createdDate >= from)
-            && (!to || createdDate <= to);
+            && statusMatch
+            && (!from || !createdDate || createdDate >= from)
+            && (!to || !createdDate || createdDate <= to);
     });
     const count = document.getElementById("borrowHistoryCount");
     count.textContent = `${filtered.length} of ${borrowLogs.length} record${borrowLogs.length === 1 ? "" : "s"}`;
@@ -405,17 +503,17 @@ function renderBorrowLogs() {
         const items = Array.isArray(proposal.items) ? proposal.items : [];
         const timeLeft = borrowTimeLeft(proposal);
         return `
-        <div class="borrow-row" data-borrow-row data-borrow-id="${escapeHtml(proposal.id)}">
-            <div class="borrow-row-main">
+        <button class="borrow-row" type="button" data-borrow-row data-borrow-id="${escapeHtml(proposal.id)}" aria-label="Open receipt for ${escapeHtml(proposal.reason || "borrow log")}">
+            <span class="borrow-row-main">
                 <strong>${escapeHtml(proposal.reason)}</strong>
                 <small>${formatTime(proposal.created_at)} · ${escapeHtml(proposal.duration_days)} day${proposal.duration_days === 1 ? "" : "s"} · ${items.length} part${items.length === 1 ? "" : "s"}</small>
-                <div class="request-items">${items.map(item => `${escapeHtml(item.name)} × ${item.quantity}`).join(" · ") || "No items"}</div>
-            </div>
-            <div class="borrow-row-side">
+                <span class="request-items">${items.map(item => `${escapeHtml(item.name)} × ${item.quantity}`).join(" · ") || "No items"}</span>
+            </span>
+            <span class="borrow-row-side">
                 <span class="request-status ${escapeHtml(proposal.status)}${proposal.lent_at && !proposal.returned_at ? " lent" : ""}">${borrowStatusLabel(proposal)}</span>
                 ${timeLeft ? `<span class="borrow-timeleft">${escapeHtml(timeLeft)}</span>` : ""}
-            </div>
-        </div>`;
+            </span>
+        </button>`;
     }).join("");
 }
 
@@ -466,13 +564,13 @@ function openReceipt(proposalId) {
         </div>
         ${proposal.photo_url ? `<div class="receipt-photo"><div class="receipt-label">Photo taken before hand-over</div><img src="${escapeHtml(proposal.photo_url)}" alt="Parts at hand-over"></div>` : ""}
     `;
-    document.getElementById("receiptModal").classList.add("open");
-    document.getElementById("receiptModal").setAttribute("aria-hidden", "false");
+    openModal("receiptModal");
     startReceiptTimer(proposal);
 }
 
 function startReceiptTimer(proposal) {
     clearInterval(receiptTimer);
+    receiptTimer = null;
     if (!proposal.lent_at || !proposal.due_at || proposal.returned_at) return;
     receiptTimer = setInterval(() => {
         const countdown = document.getElementById("receiptCountdown");
@@ -486,8 +584,7 @@ function closeReceipt() {
     clearInterval(receiptTimer);
     receiptTimer = null;
     activeReceiptId = null;
-    document.getElementById("receiptModal").classList.remove("open");
-    document.getElementById("receiptModal").setAttribute("aria-hidden", "true");
+    closeModal("receiptModal");
 }
 
 async function submitProposal(event) {
@@ -529,11 +626,91 @@ async function submitProposal(event) {
     renderCart();
     closeProposeModal();
     showToast("Proposal sent to your teacher");
-    await loadMyProposals();
+    await Promise.all([loadMyProposals(), loadOverviewMetrics()]);
 }
 
 function studentProjectDetail(label, value) {
     return value ? `<div class="project-detail"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>` : "";
+}
+
+const PROJECT_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
+
+function isoStamp(year, month, day) {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const probe = new Date(Date.UTC(year, month - 1, day));
+    if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function todayStamp() {
+    const now = clockNow();
+    return isoStamp(now.getFullYear(), now.getMonth() + 1, now.getDate());
+}
+
+function projectLimitDate(project) {
+    const raw = String(project?.held_date || "").trim();
+    if (raw) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        const text = raw.toLowerCase().replace(/[.,]/g, " ").replace(/\s+/g, " ");
+        const dayFirst = text.match(/(\d{1,2})(?:st|nd|rd|th)? ([a-z]{3,9}) (\d{4})/);
+        const monthFirst = text.match(/([a-z]{3,9}) (\d{1,2})(?:st|nd|rd|th)? (\d{4})/);
+        const numeric = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+        if (dayFirst && PROJECT_MONTHS[dayFirst[2].slice(0, 3)] !== undefined) {
+            const stamp = isoStamp(Number(dayFirst[3]), PROJECT_MONTHS[dayFirst[2].slice(0, 3)] + 1, Number(dayFirst[1]));
+            if (stamp) return stamp;
+        }
+        if (monthFirst && PROJECT_MONTHS[monthFirst[1].slice(0, 3)] !== undefined) {
+            const stamp = isoStamp(Number(monthFirst[3]), PROJECT_MONTHS[monthFirst[1].slice(0, 3)] + 1, Number(monthFirst[2]));
+            if (stamp) return stamp;
+        }
+        if (numeric) {
+            const stamp = isoStamp(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+            if (stamp) return stamp;
+        }
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) return isoStamp(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+    }
+    return [project?.make_deadline, project?.deadline].find(value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) || null;
+}
+
+function isProjectArchived(project) {
+    const limit = projectLimitDate(project);
+    return !!limit && limit < todayStamp();
+}
+
+function studentProjectDay(value) {
+    if (!value) return "—";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    return value;
+}
+
+function projectHistoryRow(project) {
+    return `
+        <article class="history-row">
+            <div><strong>${escapeHtml(project.title)}</strong><small>${escapeHtml(project.teacher_name || "Teacher")}${project.location ? ` · ${escapeHtml(project.location)}` : ""}</small><span>${escapeHtml(project.brief || "No brief given.")}</span></div>
+            <div><b class="history-status archived">Ended</b><small>${escapeHtml(studentProjectDay(projectLimitDate(project)))}</small></div>
+        </article>`;
+}
+
+function renderProjectHistory(archived) {
+    studentArchivedProjects = archived;
+    const search = document.getElementById("projectHistorySearch").value.trim().toLowerCase();
+    const from = document.getElementById("projectHistoryDateFrom").value;
+    const to = document.getElementById("projectHistoryDateTo").value;
+    const filtered = archived.filter(project => {
+        const searchable = [project.title, project.teacher_name, project.location, project.brief].join(" ").toLowerCase();
+        const limit = projectLimitDate(project) || "";
+        return (!search || searchable.includes(search))
+            && (!from || limit >= from)
+            && (!to || limit <= to);
+    });
+    const empty = `<div class="history-empty">${archived.length ? "No matching history." : "Nothing in the history box yet."}</div>`;
+    const preview = document.getElementById("projectHistory");
+    if (preview) preview.innerHTML = filtered.length ? filtered.slice(0, 5).map(projectHistoryRow).join("") : empty;
+    const full = document.getElementById("projectHistoryFull");
+    if (full) full.innerHTML = filtered.length ? filtered.map(projectHistoryRow).join("") : empty;
+    document.getElementById("projectHistoryCount").textContent = archived.length;
 }
 
 async function loadStudentProjects() {
@@ -546,6 +723,7 @@ async function loadStudentProjects() {
     const list = document.getElementById("studentProjects");
     if (projectsResult.error) {
         list.innerHTML = `<div class="empty-state empty-state-error"><strong>Could not load projects</strong><p>Run the admin SQL migration first.</p></div>`;
+        renderProjectHistory([]);
         console.error("Project load error:", projectsResult.error);
         return;
     }
@@ -562,11 +740,16 @@ async function loadStudentProjects() {
         const shared = sharedToMe.some(share => share.project_id === project.id && share.status === "yes");
         return invited || shared;
     });
-    if (!visible.length) {
-        list.innerHTML = `<div class="empty-state"><strong>No invites yet</strong><p>Projects your teachers send you — or friends share with you — will appear here.</p></div>`;
+    const active = visible.filter(project => !isProjectArchived(project));
+    const archived = visible.filter(project => isProjectArchived(project));
+    if (!active.length) {
+        list.innerHTML = archived.length
+            ? `<div class="empty-state"><strong>No events coming up</strong><p>${archived.length} past project${archived.length === 1 ? " is" : "s are"} in the history box. New invites from your teachers will appear here.</p></div>`
+            : `<div class="empty-state"><strong>No invites yet</strong><p>Projects your teachers send you — or friends share with you — will appear here.</p></div>`;
+        renderProjectHistory(archived);
         return;
     }
-    list.innerHTML = visible.map(project => {
+    list.innerHTML = active.map(project => {
         const interest = myInterests.find(item => item.project_id === project.id);
         const interestOn = !!interest;
         const confirmed = !!interest?.confirmed;
@@ -596,6 +779,7 @@ async function loadStudentProjects() {
                     : `<div class="attend-row"><button class="interested-button" data-project-action="confirm" data-project-id="${escapeHtml(project.id)}" type="button">Confirm attendance</button><small class="confirm-hint">Confirm to unlock reaching out to friends</small></div>`}
         </article>`;
     }).join("");
+    renderProjectHistory(archived);
 }
 
 async function loadDeadlines() {
@@ -613,7 +797,7 @@ async function loadDeadlines() {
     const ids = [...new Set((interestsResult.data || []).map(interest => interest.project_id))];
     let projects = [];
     if (ids.length) {
-        const { data, error } = await supabaseClient.from("project_proposals").select("id, title, teacher_name, deadline, make_deadline").in("id", ids);
+        const { data, error } = await supabaseClient.from("project_proposals").select("id, title, teacher_name, held_date, deadline, make_deadline").in("id", ids);
         if (error) { console.error("Deadline load error:", error); }
         else projects = data || [];
     }
@@ -622,30 +806,31 @@ async function loadDeadlines() {
         if (!loan.due_at) return;
         const date = new Date(loan.due_at).toISOString().slice(0, 10);
         const count = partItemCount(loan);
-        rows.push({ title: loan.reason || "Borrowed equipment", meta: `${count} part${count === 1 ? "" : "s"} · on loan`, date, badges: deadlineBadge(date, "Return by") });
+        rows.push({ title: loan.reason || "Borrowed equipment", meta: `${count} part${count === 1 ? "" : "s"} · on loan`, date, badges: deadlineBadge(date, "Return by"), tab: "borrowLogs" });
     });
-    projects.forEach(project => {
+    projects.filter(project => !isProjectArchived(project)).forEach(project => {
         if (!project.deadline && !project.make_deadline) return;
         rows.push({
             title: project.title,
             meta: project.teacher_name,
             date: [project.deadline, project.make_deadline].filter(Boolean).sort()[0],
-            badges: `${deadlineBadge(project.deadline, "Sign up")}${deadlineBadge(project.make_deadline, "Make by")}`
+            badges: `${deadlineBadge(project.deadline, "Sign up")}${deadlineBadge(project.make_deadline, "Make by")}`,
+            tab: "projectProposal"
         });
     });
-    rows.sort((a, b) => a.date.localeCompare(b.date));
+    rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
     if (!rows.length) {
         list.innerHTML = `<div class="empty-state compact-empty"><strong>No deadlines yet</strong><p>Return dates for your loans and deadlines for projects you join will appear here.</p></div>`;
         return;
     }
     list.innerHTML = rows.map(row => `
-        <div class="deadline-row">
-            <div class="deadline-main">
+        <button class="deadline-row" type="button" data-goto-tab="${row.tab}">
+            <span class="deadline-main">
                 <strong>${escapeHtml(row.title)}</strong>
                 <small>${escapeHtml(row.meta)}</small>
-            </div>
-            <div class="deadline-badges">${row.badges}</div>
-        </div>`).join("");
+            </span>
+            <span class="deadline-badges">${row.badges}</span>
+        </button>`).join("");
 }
 
 function deadlineBadge(value, label) {
@@ -671,6 +856,7 @@ async function toggleProjectInterest(projectId) {
     }
     await loadStudentProjects();
     await loadDeadlines();
+    await loadOverviewMetrics();
 }
 
 async function toggleLike(postId, button) {
@@ -711,13 +897,13 @@ async function openShareModal(projectId) {
     (Array.isArray(project?.invited_students) ? project.invited_students : []).forEach(student => shareClosed.push(student.id));
     allShares.filter(share => share.project_id === projectId).forEach(share => shareClosed.push(share.invitee_id));
     shareActiveCount = allShares.filter(share => share.project_id === projectId && share.status === "yes").length;
-    const dayStart = new Date();
+    const dayStart = clockNow();
     dayStart.setHours(0, 0, 0, 0);
     const dailyResult = await supabaseClient.from("project_shares").select("id", { count: "exact", head: true }).eq("sharer_id", currentUser.id).gte("created_at", dayStart.toISOString());
     shareDailyCount = dailyResult.count || 0;
     document.getElementById("inviteSearch").value = "";
     renderSharePicker();
-    document.getElementById("inviteModal").classList.add("open");
+    openModal("inviteModal");
 }
 
 function renderSharePicker() {
@@ -740,13 +926,13 @@ function renderSharePicker() {
     list.innerHTML = filtered.map(classmate => {
         const isClosed = closed.has(classmate.id);
         const checked = !!sharePick[classmate.id];
-        return `<div class="invite-row ${checked ? "selected" : ""}${isClosed ? " disabled" : ""}" data-invite-option="${escapeHtml(classmate.id)}">
+        return `<button class="invite-row ${checked ? "selected" : ""}${isClosed ? " disabled" : ""}" type="button" data-invite-option="${escapeHtml(classmate.id)}" role="checkbox" aria-checked="${checked}" ${isClosed ? "disabled" : ""}>
             <span class="invite-avatar">${escapeHtml(initialsFor(classmate.name))}</span>
             <span class="invite-name">${escapeHtml(classmate.name)}</span>
             ${isClosed
                 ? `<span class="invite-state invited">Already on it</span>`
                 : `<span class="invite-state">${checked ? "Selected" : "Tap to select"}</span>`}
-        </div>`;
+        </button>`;
     }).join("");
 }
 
@@ -770,25 +956,50 @@ async function submitShare(event) {
         if (skipped) message += (message ? " · " : "") + `${skipped} already on this project`;
         if (incomingLimited) message += (message ? " · " : "") + `${incomingLimited} already reached their 5-friend limit`;
     }
-    document.getElementById("inviteModal").classList.remove("open");
+    closeModal("inviteModal");
     if (message) showToast(message);
     await loadStudentProjects();
 }
 
 document.addEventListener("click", async event => {
     const projectAction = event.target.closest("[data-project-action]");
-    if (!projectAction) return;
-    if (projectAction.dataset.projectAction === "confirm") await confirmProjectInterest(projectAction.dataset.projectId);
-    if (projectAction.dataset.projectAction === "share") await openShareModal(projectAction.dataset.projectId);
+    if (projectAction) {
+        if (projectAction.dataset.projectAction === "confirm") await confirmProjectInterest(projectAction.dataset.projectId);
+        if (projectAction.dataset.projectAction === "share") await openShareModal(projectAction.dataset.projectId);
+        return;
+    }
 });
 
 document.addEventListener("click", async event => {
     const tab = event.target.closest("[data-tab]");
     if (tab) setActiveTab(tab.dataset.tab);
 
-    const projectAction = event.target.closest("[data-project-action]");
-    if (projectAction && projectAction.dataset.projectAction === "interested") {
-        await toggleProjectInterest(projectAction.dataset.projectId);
+    const goto = event.target.closest("[data-goto-tab]");
+    if (goto) {
+        setActiveTab(goto.dataset.gotoTab);
+        if (goto.dataset.gotoFilter) {
+            const filter = document.getElementById(goto.dataset.gotoFilter);
+            if (filter) { filter.value = goto.dataset.gotoValue || ""; filter.dispatchEvent(new Event("change", { bubbles: true })); }
+        }
+        return;
+    }
+
+    const interestedAction = event.target.closest('[data-project-action="interested"]');
+    if (interestedAction) {
+        await toggleProjectInterest(interestedAction.dataset.projectId);
+        return;
+    }
+
+    const inviteOption = event.target.closest("[data-invite-option]");
+    if (inviteOption) {
+        const userId = inviteOption.dataset.inviteOption;
+        if (shareClosed.includes(userId)) return;
+        if (!sharePick[userId] && Object.values(sharePick).filter(Boolean).length >= shareBudget()) {
+            showToast("Share budget for today is used up");
+            return;
+        }
+        sharePick[userId] = !sharePick[userId];
+        renderSharePicker();
         return;
     }
 
@@ -840,27 +1051,31 @@ document.addEventListener("click", async event => {
     }
 
     const action = event.target.closest("[data-action]");
-    if (!action) return;
-    const card = action.closest("[data-post-id]");
-    if (!card) return;
-    if (action.dataset.action === "like") await toggleLike(card.dataset.postId, action);
-    if (action.dataset.action === "comment") {
-        const comments = card.querySelector("[data-comments]");
-        comments.classList.toggle("open");
-        if (comments.classList.contains("open")) openCommentPostIds.add(card.dataset.postId);
-        else openCommentPostIds.delete(card.dataset.postId);
+    if (action) {
+        const card = action.closest("[data-post-id]");
+        if (card) {
+            if (action.dataset.action === "like") await toggleLike(card.dataset.postId, action);
+            if (action.dataset.action === "comment") {
+                const comments = card.querySelector("[data-comments]");
+                comments.classList.toggle("open");
+                if (comments.classList.contains("open")) openCommentPostIds.add(card.dataset.postId);
+                else openCommentPostIds.delete(card.dataset.postId);
+            }
+            if (action.dataset.action === "share") {
+                await navigator.clipboard?.writeText(`${location.href.split("#")[0]}#announcement-${card.dataset.postId}`);
+                showToast("Announcement link copied");
+            }
+        }
+        return;
     }
-    if (action.dataset.action === "share") {
-        await navigator.clipboard?.writeText(`${location.href.split("#")[0]}#announcement-${card.dataset.postId}`);
-        showToast("Announcement link copied");
-    }
+
+    if (event.target.closest(".modal-backdrop") === event.target) closeTopModal();
 });
 
 document.getElementById("partSearch").addEventListener("input", renderPartsGrid);
 document.getElementById("partCategoryFilter").addEventListener("change", renderPartsGrid);
 document.getElementById("proposeButton").addEventListener("click", openProposeModal);
 document.getElementById("proposeClose").addEventListener("click", closeProposeModal);
-document.getElementById("proposeModal").addEventListener("click", event => { if (event.target === event.currentTarget) closeProposeModal(); });
 document.getElementById("proposeForm").addEventListener("submit", submitProposal);
 document.getElementById("borrowList").addEventListener("click", async event => {
     const row = event.target.closest("[data-borrow-row]");
@@ -872,23 +1087,33 @@ document.getElementById("borrowList").addEventListener("click", async event => {
 });
 document.getElementById("receiptClose").addEventListener("click", closeReceipt);
 document.getElementById("receiptModal").addEventListener("click", event => { if (event.target === event.currentTarget) closeReceipt(); });
-
-document.getElementById("inviteClose").addEventListener("click", () => document.getElementById("inviteModal").classList.remove("open"));
-document.getElementById("inviteModal").addEventListener("click", event => { if (event.target === event.currentTarget) event.currentTarget.classList.remove("open"); });
-document.getElementById("inviteSearch").addEventListener("input", renderSharePicker);
-document.getElementById("inviteList").addEventListener("click", event => {
-    const row = event.target.closest("[data-invite-option]");
-    if (!row) return;
-    const userId = row.dataset.inviteOption;
-    if (shareClosed.includes(userId)) return;
-    if (!sharePick[userId] && Object.values(sharePick).filter(Boolean).length >= shareBudget()) {
-        showToast("Share budget for today is used up");
-        return;
-    }
-    sharePick[userId] = !sharePick[userId];
-    renderSharePicker();
+document.getElementById("newRequestButton").addEventListener("click", () => {
+    setActiveTab("partProposal");
+    setTimeout(() => document.getElementById("partSearch").focus({ preventScroll: true }), 220);
 });
+
+document.getElementById("inviteClose").addEventListener("click", () => closeModal("inviteModal"));
+document.getElementById("inviteSearch").addEventListener("input", renderSharePicker);
 document.getElementById("inviteForm").addEventListener("submit", submitShare);
+
+function openProjectHistoryModal() {
+    document.getElementById("projectHistoryToggle").setAttribute("aria-expanded", "true");
+    renderProjectHistory(studentArchivedProjects);
+    openModal("projectHistoryBackdrop");
+}
+
+function closeProjectHistoryModal() {
+    document.getElementById("projectHistoryToggle").setAttribute("aria-expanded", "false");
+    closeModal("projectHistoryBackdrop");
+}
+
+document.getElementById("projectHistoryToggle").addEventListener("click", openProjectHistoryModal);
+document.getElementById("projectHistoryClose").addEventListener("click", closeProjectHistoryModal);
+["projectHistorySearch", "projectHistoryDateFrom", "projectHistoryDateTo"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => renderProjectHistory(studentArchivedProjects));
+    document.getElementById(id).addEventListener("change", () => renderProjectHistory(studentArchivedProjects));
+});
+
 document.getElementById("postList").addEventListener("submit", async event => {
     if (event.target.matches(".comment-edit-form")) {
         event.preventDefault();
@@ -942,12 +1167,177 @@ function startCommentEdit(commentEl) {
     form.querySelector("textarea").focus();
 }
 
-document.querySelector(".sign-out").addEventListener("click", async () => {
+async function refreshDashboard(showMessage = true) {
+    if (refreshing) return;
+    refreshing = true;
+    const button = document.getElementById("refreshButton");
+    button?.setAttribute("aria-busy", "true");
+    await refreshSimClock();
+    renderDashboardDate();
+    const activeTab = document.querySelector(".tab-view.active")?.id.replace("View", "") || "overview";
+    await Promise.all([
+        loadOverviewMetrics(),
+        loadDeadlines(),
+        loadAnnouncements(),
+        loadStudentProjects(),
+        activeTab === "partProposal" ? loadInventoryParts() : Promise.resolve(),
+        activeTab === "partProposal" ? loadMyProposals() : Promise.resolve(),
+        activeTab === "borrowLogs" ? loadBorrowLogs() : Promise.resolve(),
+        activeTab === "labTimings" ? loadLabTimings() : Promise.resolve()
+    ]);
+    button?.removeAttribute("aria-busy");
+    refreshing = false;
+    if (showMessage) showToast("Dashboard refreshed");
+}
+
+document.getElementById("refreshButton").addEventListener("click", () => refreshDashboard());
+document.getElementById("signOutButton").addEventListener("click", async () => {
     await supabaseClient.auth.signOut();
     window.location.href = "index.html";
 });
 
+function showFatal(message) {
+    const main = document.querySelector(".dashboard-main");
+    if (!main) return;
+    const box = document.createElement("div");
+    box.className = "fatal-state";
+    box.innerHTML = '<p class="eyebrow">Lab service</p><h2></h2><p>Reload the page to try again.</p>';
+    box.querySelector("h2").textContent = message;
+    main.replaceChildren(box);
+}
+
+/* ---------------- Lab timings (read-only) ---------------- */
+
+let loadLabTimings = async function () {};
+let labTimingsPickedNearest = false;
+
+function initLabTimings() {
+    const Lab = window.OtterLab;
+    if (!Lab) return;
+
+    Lab.init({
+        mode: "student",
+        supabase: supabaseClient,
+        now: clockNow
+    });
+
+    const el = id => document.getElementById(id);
+    const grid = el("labDayGrid");
+    const periodList = el("labPeriodList");
+    const summary = el("labDaySummary");
+    if (!grid || !periodList) return;
+
+    function render() {
+        el("labMonthLabel").textContent = Lab.monthTitle(Lab.state.year, Lab.state.month);
+
+        const stamp = Lab.state.selected;
+        if (!stamp) {
+            el("labDayTitle").textContent = "No day selected";
+            el("labDaySubtitle").textContent = "Pick a date from the calendar.";
+            periodList.innerHTML = "";
+            summary.hidden = true;
+            Lab.renderCalendar(grid);
+            return;
+        }
+
+        const status = Lab.classifyDay(stamp);
+        const numbers = status === Lab.DAY_OPEN ? Lab.openPeriodsFor(stamp) : [];
+        const isWeekend = status === Lab.DAY_WEEKEND;
+        const isHoliday = status === Lab.DAY_HOLIDAY;
+
+        el("labDayTitle").textContent = Lab.formatLong(stamp);
+        el("labDaySubtitle").textContent = isWeekend ? "Weekend — the lab is closed."
+            : isHoliday ? `Holiday — ${Lab.state.holidays.get(stamp)}.`
+            : status === Lab.DAY_OPEN ? `Lab open · ${Lab.describeOpenPeriods(numbers, Lab.state.periods)}`
+            : "No lab on this day.";
+
+        if (isWeekend || isHoliday) {
+            summary.hidden = false;
+            summary.className = `lab-day-summary is-${status}`;
+            summary.innerHTML = `<strong>${isHoliday ? Lab.escapeHtml(Lab.state.holidays.get(stamp)) : "Weekend"}</strong><span>${isHoliday ? "National holiday. The lab is closed all day." : "The lab does not run at the weekend."}</span>`;
+            periodList.innerHTML = "";
+        } else {
+            if (status === Lab.DAY_OPEN) {
+                const first = numbers[0];
+                const last = numbers[numbers.length - 1];
+                const firstRow = Lab.state.periods.find(row => Number(row.period_no) === first);
+                const lastRow = Lab.state.periods.find(row => Number(row.period_no) === last);
+                summary.hidden = false;
+                summary.className = "lab-day-summary is-open";
+                summary.innerHTML = `<strong>${Lab.escapeHtml(Lab.describeOpenPeriods(numbers, Lab.state.periods))}</strong><span>${Lab.escapeHtml(Lab.timeRange(firstRow && firstRow.starts_at, lastRow && lastRow.ends_at))}</span>`;
+            } else {
+                summary.hidden = false;
+                summary.className = "lab-day-summary is-closed";
+                summary.innerHTML = `<strong>No lab</strong><span>The lab is closed for all nine periods on this day.</span>`;
+            }
+            Lab.renderPeriodList(periodList, { editable: false, draft: new Set(numbers) });
+        }
+
+        const upcoming = Lab.nextLabDay(Lab.todayStamp());
+        el("labCalendarHint").textContent = Lab.anyPublished()
+            ? `Pick a day to see when the lab is open.${upcoming ? ` Next lab day: ${Lab.formatShort(upcoming)}.` : ""}`
+            : "Your teacher has not published any lab timings yet.";
+
+        el("labPrevLabDay").disabled = !Lab.prevLabDay(Lab.state.selected);
+        el("labNextLabDay").disabled = !Lab.nextLabDay(Lab.state.selected);
+
+        Lab.renderCalendar(grid);
+    }
+
+    function goTo(stamp) {
+        if (!stamp) return;
+        const parts = Lab.splitStamp(stamp);
+        Lab.showMonth(parts.year, parts.month);
+        Lab.selectDay(stamp);
+        render();
+    }
+
+    async function reload() {
+        await Lab.loadData();
+        if (Lab.state.lastError) {
+            console.error("Lab timings error:", Lab.state.lastError);
+            grid.innerHTML = `<div class="lab-error">Lab timings could not load. Tell your teacher to run the lab timings SQL migration.</div>`;
+            return;
+        }
+        /* First time in, land on the closest day that actually has lab.
+           Once the student picks a day themselves, stop moving it for them. */
+        if (!Lab.state.selected || (!labTimingsPickedNearest && !Lab.anyPublished())) {
+            const target = Lab.anyPublished() ? Lab.nearestLabDay(Lab.todayStamp()) : Lab.todayStamp();
+            const parts = Lab.splitStamp(target);
+            Lab.showMonth(parts.year, parts.month);
+            Lab.selectDay(target);
+            labTimingsPickedNearest = Lab.anyPublished();
+        } else if (Lab.state.selected) {
+            Lab.selectDay(Lab.state.selected);
+        }
+        render();
+    }
+
+    grid.addEventListener("click", event => {
+        const button = event.target.closest("[data-lab-stamp]");
+        if (!button) return;
+        labTimingsPickedNearest = true;
+        Lab.selectDay(button.dataset.labStamp);
+        render();
+    });
+
+    el("labPrevMonth").addEventListener("click", () => { Lab.moveMonth(-1); render(); });
+    el("labNextMonth").addEventListener("click", () => { Lab.moveMonth(1); render(); });
+    el("labToday").addEventListener("click", () => goTo(Lab.todayStamp()));
+    el("labPrevLabDay").addEventListener("click", () => { const next = Lab.prevLabDay(Lab.state.selected); if (next) goTo(next); });
+    el("labNextLabDay").addEventListener("click", () => { const next = Lab.nextLabDay(Lab.state.selected); if (next) goTo(next); });
+
+    loadLabTimings = async function () { await reload(); };
+    Lab.subscribe(() => reload());
+
+    reload();
+}
+
 async function initialiseDashboard() {
+    if (!supabaseClient) {
+        showFatal("We could not reach the lab service.");
+        return;
+    }
     await refreshSimClock();
 
     const { data: { user }, error } = await supabaseClient.auth.getUser();
@@ -971,9 +1361,16 @@ async function initialiseDashboard() {
     const displayName = user.user_metadata?.full_name || user.email?.split("@")[0] || "student";
     currentUser.name = displayName;
     renderDashboardDate();
-    document.querySelector(".profile-chip span").textContent = displayName;
-    document.querySelector(".profile-avatar").textContent = initialsFor(displayName);
+    document.getElementById("profileName").textContent = displayName;
+    document.getElementById("profileAvatar").textContent = initialsFor(displayName);
+    initLabTimings();
     setActiveTab("overview");
+    if (window.OtterTutorial) {
+        OtterTutorial.autostart("student", {
+            theme: "dark",
+            onNavigate: step => { if (step.go) setActiveTab(step.go); }
+        });
+    }
     await Promise.all([loadOverviewMetrics(), loadDeadlines(), loadStudentProjects(), loadAnnouncements()]);
 
     supabaseClient.channel("announcements-feed")
@@ -992,7 +1389,7 @@ async function initialiseDashboard() {
         .subscribe();
 
     supabaseClient.channel("my-proposals-feed")
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "part_proposals" }, () => { loadMyProposals(); loadBorrowLogs(); })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "part_proposals" }, () => { loadMyProposals(); loadBorrowLogs(); loadOverviewMetrics(); })
         .subscribe();
 
     supabaseClient.channel("student-projects-feed")
@@ -1000,6 +1397,7 @@ async function initialiseDashboard() {
         .on("postgres_changes", { event: "*", schema: "public", table: "project_interests" }, () => { loadStudentProjects(); loadDeadlines(); })
         .on("postgres_changes", { event: "*", schema: "public", table: "sim_clock" }, async () => { await refreshSimClock(); renderDashboardDate(); loadDeadlines(); })
         .subscribe();
+
     supabaseClient.channel("noise-feed")
         .on("postgres_changes", { event: "*", schema: "public", table: "project_shares" }, () => { loadStudentProjects(); loadDeadlines(); })
         .subscribe();

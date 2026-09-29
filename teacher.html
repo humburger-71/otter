@@ -4,45 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Otter — Teacher console</title>
-    <link rel="stylesheet" href="teacher.css?v=22">
-<style>
-.sim-clock-banner.teacher { position: sticky; top: 0; z-index: 60; width: 100%; padding: 7px 16px; box-sizing: border-box; background: #fff3cd; border-bottom: 1px solid #e0c562; color: #5c4000; font-size: 13px; font-weight: 600; text-align: center; }
-.sim-clock-banner.teacher small { font-weight: 500; color: #7a5d0a; }
-</style>
+    <link rel="stylesheet" href="teacher.css?v=35">
+    <link rel="stylesheet" href="tutorial.css?v=1">
 </head>
 <body>
     <div class="teacher-shell">
         <aside class="teacher-sidebar">
-            <a class="teacher-brand" href="teacher.html"><span class="teacher-mark">O</span><span><strong>otter teachers</strong><small>lab home</small></span></a>
+            <a class="teacher-brand" href="teacher.html"><span class="teacher-mark">O</span><span><strong>otter teachers</strong><small>review workspace</small></span></a>
             <nav class="teacher-nav" aria-label="Teacher navigation">
-                <button class="active" data-tab="overview" type="button"><span class="nav-icon">◈</span>Home</button>
-                <button data-tab="parts" type="button"><span class="nav-icon">＋</span>Borrow requests</button>
-                <button data-tab="collateral" type="button"><span class="nav-icon">◈</span>Parts out</button>
-                <button data-tab="logs" type="button"><span class="nav-icon">≡</span>Return log</button>
-                <button data-tab="notice" type="button"><span class="nav-icon">⚠</span>Needs attention</button>
-                <button data-tab="projects" type="button"><span class="nav-icon">✦</span>Student projects</button>
+                <button class="active" data-tab="overview" type="button"><span class="nav-icon" aria-hidden="true">◈</span>Overview</button>
+                <button data-tab="parts" type="button"><span class="nav-icon" aria-hidden="true">＋</span>Part proposals<span class="nav-count" data-nav-count="parts" hidden></span></button>
+                <button data-tab="collateral" type="button"><span class="nav-icon" aria-hidden="true">◈</span>Collateral<span class="nav-count" data-nav-count="collateral" hidden></span></button>
+                <button data-tab="logs" type="button"><span class="nav-icon" aria-hidden="true">≡</span>Logs</button>
+                <button data-tab="notice" type="button"><span class="nav-icon" aria-hidden="true">⚠</span>Notice<span class="nav-count" data-nav-count="notice" hidden></span></button>
+                <button data-tab="projects" type="button"><span class="nav-icon" aria-hidden="true">✦</span>Project proposals<span class="nav-count" data-nav-count="projects" hidden></span></button>
+                <button data-tab="labTimings" type="button"><span class="nav-icon" aria-hidden="true">▦</span>Lab timings</button>
             </nav>
             <div class="teacher-sidebar-footer">
                 <span id="teacherIdentity">Teacher</span>
-                <button id="teacherSignOut" type="button">↪ Sign out</button>
+                <button class="sidebar-signout" id="teacherSignOut" type="button">↪ Sign out</button>
             </div>
         </aside>
         <main class="teacher-main">
-            <header class="topbar">
-                <div class="breadcrumb">otter / <strong>teacher home</strong></div>
-                <span class="profile-chip" id="teacherChip">Teaching account</span>
-            </header>
             <div class="page-heading">
-                <div>
+                <div class="page-heading-text">
                     <p class="eyebrow">Teacher desk</p>
-                    <h1><span id="teacherLead">Good day,</span> <span id="teacherAccent">teacher</span></h1>
-                    <p id="teacherDescription">A clear view of your students, parts, and projects.</p>
+                    <h1><span id="teacherLead">Overview</span> <span id="teacherAccent">today</span></h1>
+                    <p id="teacherDescription">Here is what your students are sharing.</p>
+                </div>
+                <button class="alert-enable" id="teacherAlertButton" type="button" hidden>
+                    <span aria-hidden="true">&#128276;</span><span id="teacherAlertLabel">Turn on desktop alerts</span>
+                </button>
+                <div class="page-heading-stat">
+                    <strong id="teacherHeaderStatValue">&mdash;</strong>
+                    <span id="teacherHeaderStatLabel">loading</span>
                 </div>
             </div>
-            <section class="teacher-rhythm" aria-label="Teacher workflow">
-                <div class="rhythm-intro"><p class="eyebrow">Your daily rhythm</p><h2>Keep the lab moving without chasing details.</h2></div>
-                <div class="rhythm-actions"><div><span>01</span><strong>Review</strong><small>Answer new requests</small></div><div><span>02</span><strong>Hand out</strong><small>Start a borrow</small></div><div><span>03</span><strong>Follow up</strong><small>Bring parts back</small></div></div>
-            </section>
 
             <section class="teacher-view active" id="overviewView">
                 <div class="feed-column">
@@ -85,13 +82,8 @@
             </section>
 
             <section class="teacher-view" id="partsView">
-                <div class="parts-heading">
-                    <p>Check new requests and give students a clear answer.</p>
-                    <div class="queue-stat"><strong id="pendingCount">0</strong><span>awaiting</span></div>
-                </div>
                 <div class="parts-queue-layout">
                     <div class="decision-queue">
-                    <div class="queue-section-heading"><strong>Ready for review</strong><span>New requests</span></div>
                         <div class="proposal-feed" id="proposalFeed"></div>
                     </div>
                     <aside class="request-history-panel">
@@ -106,10 +98,6 @@
             </section>
 
             <section class="teacher-view" id="collateralView">
-                <div class="parts-heading">
-                    <p>Give students their approved parts, then keep an eye on what is still out.</p>
-                    <div class="queue-stat"><strong id="awaitingPickupCount">0</strong><span>to hand out</span></div>
-                </div>
                 <div class="collateral-toolbar">
                     <label class="collateral-search-field"><span>Search</span><input id="collateralSearch" type="search" placeholder="Student, class, part, or request..." aria-label="Search collateral"></label>
                     <label class="collateral-status-field"><span>Status</span><select id="collateralStatus"><option value="all">All statuses</option><option value="awaiting">Awaiting pickup</option><option value="out">On loan</option><option value="overdue">Overdue</option><option value="returned">Returned</option></select></label>
@@ -132,10 +120,6 @@
             </section>
 
             <section class="teacher-view" id="logsView">
-                <div class="parts-heading">
-                    <p>A simple record of every part brought back to the lab.</p>
-                    <div class="queue-stat"><strong id="returnedLogCount">0</strong><span>returned</span></div>
-                </div>
                 <div class="logs-toolbar">
                     <div class="logs-datenav">
                         <button id="logsDayPrev" type="button" title="Previous day" aria-label="Previous day">←</button>
@@ -150,9 +134,6 @@
             </section>
 
             <section class="teacher-view" id="noticeView">
-                <div class="parts-heading">
-                    <p>A request keeps its borrowed parts for 3, 7, 10, or 14 days. When a borrowed part is not returned by its due date, a warning is sent here automatically. Nothing else happens — no penalties, no locks.</p>
-                </div>
                 <div class="parts-queue-layout">
                     <div class="decision-queue">
                         <section class="panel workspace-panel notice-desk">
@@ -175,11 +156,98 @@
             </section>
 
             <section class="teacher-view" id="projectsView">
-                <div class="projects-toolbar">
-                    <span class="projects-count" id="projectCount">No projects yet</span>
-                    <button class="new-project-button" id="newProjectButton" type="button">＋ New project</button>
+                <div class="parts-queue-layout">
+                    <div class="decision-queue">
+                        <div class="projects-toolbar">
+                            <span class="projects-count" id="projectCount">No projects yet</span>
+                            <button class="new-project-button" id="newProjectButton" type="button">＋ New project</button>
+                        </div>
+                        <div class="project-list" id="projectList"></div>
+                    </div>
+                    <aside class="request-history-panel">
+                        <button class="history-panel-heading" id="projectHistoryToggle" type="button" aria-expanded="false" aria-controls="projectHistoryBackdrop" title="Open full project history">
+                            <span class="history-heading-title"><strong>Project history</strong><small class="history-collapsed-hint"><i aria-hidden="true">⤢</i>Collapsed — click to expand</small></span>
+                            <span class="history-panel-count" id="projectHistoryCount">0</span>
+                        </button>
+                        <p class="history-panel-desc">A project leaves this list the day after its date, and stays here for reference.</p>
+                        <div class="proposal-history-list" id="projectHistory"></div>
+                    </aside>
                 </div>
-                <div class="project-list" id="projectList"></div>
+            </section>
+
+            <section class="teacher-view" id="labTimingsView">
+                <div class="lab-layout">
+                    <div class="lab-calendar-panel">
+                        <div class="lab-cal-head">
+                            <button id="labPrevMonth" type="button" title="Previous month" aria-label="Previous month">←</button>
+                            <h2 id="labMonthLabel">Month</h2>
+                            <button id="labNextMonth" type="button" title="Next month" aria-label="Next month">→</button>
+                            <button class="lab-todaybtn" id="labToday" type="button">Today</button>
+                        </div>
+                        <p class="lab-cal-hint" id="labCalendarHint">Pick a day to set the lab timings for it.</p>
+                        <div class="lab-legend">
+                            <span class="lab-legend-item"><i class="lab-swatch open" aria-hidden="true">&#9679;</i>Lab open</span>
+                            <span class="lab-legend-item"><i class="lab-swatch closed" aria-hidden="true">&#8212;</i>No lab</span>
+                            <span class="lab-legend-item"><i class="lab-swatch holiday" aria-hidden="true">&#9670;</i>Holiday</span>
+                            <span class="lab-legend-item"><i class="lab-swatch weekend" aria-hidden="true"></i>Weekend</span>
+                        </div>
+                        <div class="lab-weekdays" aria-hidden="true">
+                            <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                        </div>
+                        <div class="lab-daygrid" id="labDayGrid"></div>
+                    </div>
+
+                    <aside class="lab-day-panel">
+                        <div class="lab-day-head">
+                            <p class="eyebrow">Selected day</p>
+                            <h3 id="labDayTitle">No day selected</h3>
+                            <p id="labDaySubtitle">Pick a date from the calendar.</p>
+                        </div>
+
+                        <div class="lab-bulk" id="labBulk" hidden>
+                            <span class="lab-bulk-label">Set all periods</span>
+                            <div class="lab-bulk-btns">
+                                <button type="button" data-lab-all="open">Lab open</button>
+                                <button type="button" data-lab-all="closed">No lab</button>
+                            </div>
+                        </div>
+
+                        <div class="lab-periods" id="labPeriodList"></div>
+
+                        <div class="lab-holiday-toggle" id="labHolidayToggle">
+                            <span class="lab-holiday-copy">
+                                <strong>Mark as a holiday</strong>
+                                <small id="labHolidayHint">A holiday is a full day off. The lab is closed and students see it greyed out.</small>
+                            </span>
+                            <button class="lab-switch" id="labHolidaySwitch" type="button" role="switch" aria-checked="false">
+                                <span class="lab-switch-knob" aria-hidden="true"></span>
+                            </button>
+                        </div>
+
+                        <div class="lab-holiday-name" id="labHolidayName" hidden>
+                            <label for="labHolidayLabel">Holiday name</label>
+                            <input id="labHolidayLabel" type="text" placeholder="e.g. Diwali" autocomplete="off">
+                        </div>
+
+                        <p class="lab-save-note" id="labSaveNote">Changes save as soon as you publish the day.</p>
+
+                        <div class="lab-day-actions" id="labDayActions" hidden>
+                            <button class="lab-savebtn" id="labSaveDay" type="button">Publish this day</button>
+                            <button class="lab-clearbtn" id="labClearDay" type="button">Clear day</button>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="lab-timetable-panel">
+                    <div class="lab-timetable-head">
+                        <div>
+                            <h2>Period timetable</h2>
+                            <p>These nine slots apply to every lab day. Edit the times and they update everywhere.</p>
+                        </div>
+                        <button class="lab-savebtn" id="labSavePeriods" type="button">Save timetable</button>
+                    </div>
+                    <div class="lab-timetable-grid" id="labTimetableGrid"></div>
+                </div>
             </section>
         </main>
     </div>
@@ -226,6 +294,28 @@
                     </div>
                 </div>
                 <div class="proposal-history-list" id="noticeHistoryFull"></div>
+            </div>
+        </section>
+    </div>
+
+    <div class="modal-backdrop" id="projectHistoryBackdrop" aria-hidden="true">
+        <section class="modal-panel history-expanded-panel" id="projectHistoryExpandedPanel" role="dialog" aria-modal="true" aria-labelledby="projectHistoryExpandedTitle">
+            <div class="modal-head">
+                <div>
+                    <p class="eyebrow">Project history</p>
+                    <h2 id="projectHistoryExpandedTitle">Past project proposals</h2>
+                </div>
+                <button class="modal-close" id="projectHistoryClose" type="button" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="history-filter-panel" id="projectHistoryFilterPanel">
+                    <label class="history-search-field"><span>Search</span><input id="projectHistorySearch" type="search" placeholder="Project, teacher, or place..." aria-label="Search project history"></label>
+                    <div class="history-filter-grid">
+                        <label><span>Ended from</span><input id="projectHistoryDateFrom" type="date" aria-label="Project history from date"></label>
+                        <label><span>Ended to</span><input id="projectHistoryDateTo" type="date" aria-label="Project history to date"></label>
+                    </div>
+                </div>
+                <div class="proposal-history-list" id="projectHistoryFull"></div>
             </div>
         </section>
     </div>
@@ -325,6 +415,9 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="social.js?v=4"></script>
-    <script src="teacher.js?v=24"></script>
+    <script src="lab-timings.js?v=2"></script>
+    <script src="tutorial-content.js?v=1"></script>
+    <script src="tutorial.js?v=3"></script>
+    <script src="teacher.js?v=33"></script>
 </body>
 </html>

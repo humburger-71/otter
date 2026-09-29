@@ -1666,4 +1666,14 @@ supabaseClient.channel("admin-borrow-live").on("postgres_changes", { event: "*",
     }
 }).subscribe();
 
-(async () => { const user = await requireAdmin(); if (!user) return; await Promise.all([loadInventory(), loadSimClock(), loadInviteCodes()]); })();
+(async () => {
+    const user = await requireAdmin();
+    if (!user) return;
+    await Promise.all([loadInventory(), loadSimClock(), loadInviteCodes()]);
+    if (window.OtterTutorial) {
+        OtterTutorial.autostart("admin", {
+            theme: "dark",
+            onNavigate: step => { if (step.go) setTab(step.go); }
+        });
+    }
+})();

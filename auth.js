@@ -38,6 +38,7 @@ const backToLogin = document.getElementById("backToLogin");
 
 const otterSpeech = document.getElementById("otterSpeech");
 
+
 const toast = document.getElementById("toast");
 const toastIcon = document.getElementById("toastIcon");
 const toastTitle = document.getElementById("toastTitle");
@@ -188,6 +189,8 @@ function setOtterSpeech(text) {
 
     span.textContent = text;
 }
+
+
 
 
 function setOtterMode(mode) {

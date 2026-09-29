@@ -5,16 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Otter — Admin console</title>
     <link rel="stylesheet" href="admin.css?v=25">
+    <link rel="stylesheet" href="tutorial.css?v=1">
 </head>
 <body>
     <div class="admin-shell">
         <aside class="admin-sidebar">
-            <a class="admin-brand" href="admin.html"><span class="admin-mark">O</span><span><strong>otter admin</strong><small>lab tools</small></span></a>
+            <a class="admin-brand" href="admin.html"><span class="admin-mark">O</span><span><strong>otter admin</strong><small>control center</small></span></a>
             <nav class="admin-nav" aria-label="Admin navigation">
-                <button class="active" data-admin-tab="registry" type="button">Parts library</button>
-                <button data-admin-tab="partslog" type="button">Where parts are</button>
-                <button data-admin-tab="restock" type="button">Stock helper</button>
-                <button data-admin-tab="clock" type="button">Test time</button>
+                <button class="active" data-admin-tab="registry" type="button">Parts registry</button>
+                <button data-admin-tab="partslog" type="button">Parts log</button>
+                <button data-admin-tab="restock" type="button">Restocking</button>
+                <button data-admin-tab="clock" type="button">Test clock</button>
             </nav>
             <div class="admin-sidebar-footer">
                 <span id="adminIdentity">Admin</span>
@@ -23,19 +24,15 @@
         </aside>
 
         <main class="admin-main">
-            <header class="admin-topbar"><span>otter / lab tools</span><span class="admin-topbar-right"><span id="adminDate">Today</span><button class="ale-topbar" id="openAleBtn" type="button"><span class="ale-spark">✦</span>Ask ALE</button></span></header>
+            <header class="admin-topbar"><span>otter / restricted workspace</span><span class="admin-topbar-right"><span id="adminDate">Today</span><button class="ale-topbar" id="openAleBtn" type="button"><span class="ale-spark">✦</span>Ask ALE</button></span></header>
             <div class="admin-heading">
-                <div><p class="eyebrow">Lab care</p><h1 id="adminTitle">Parts library</h1><p id="adminDescription">Keep the lab’s equipment easy to find and ready to use.</p></div>
-                <span class="admin-badge">ADMIN</span>
+                <div><p class="eyebrow">Operations</p><h1 id="adminTitle">Parts registry</h1><p id="adminDescription">Manage the equipment catalog without changing application code.</p></div>
+                <span class="admin-badge">ADMIN ACCESS</span>
             </div>
-            <section class="admin-rhythm" aria-label="Admin workflow">
-                <div><p class="eyebrow">Lab health</p><h2>Keep every part easy to find and ready to use.</h2></div>
-                <div class="admin-rhythm-points"><span><b>01</b> Organise</span><span><b>02</b> Track</span><span><b>03</b> Restock</span></div>
-            </section>
 
             <section class="admin-view active" id="registryView">
                 <section class="admin-panel wide">
-                    <div class="panel-head"><div><h2>Parts library</h2><small>Find and sort everything in the lab</small></div><div class="panel-actions"><button class="quiet-button" id="addFolderBtn" type="button">＋&hairsp;New group</button><button class="action-button" id="openPartModal" type="button">＋&hairsp;Add part</button><button class="quiet-button ale-button" id="aleOrganizeBtn" type="button">✦&hairsp;Tidy with ALE</button></div></div>
+                    <div class="panel-head"><div><h2>Parts registry</h2><small>Browse folders like a file explorer · ask ALE for anything</small></div><div class="panel-actions"><button class="quiet-button" id="addFolderBtn" type="button">＋&hairsp;New folder</button><button class="action-button" id="openPartModal" type="button">＋&hairsp;Add part</button><button class="quiet-button ale-button" id="aleOrganizeBtn" type="button">✦&hairsp;Ask ALE to tidy up</button></div></div>
                     <div class="panel-body">
                         <div class="registry-layout">
                             <aside class="registry-tree" id="registryTree" aria-label="Folders"></aside>
@@ -57,7 +54,7 @@
 
             <section class="admin-view" id="partslogView">
                 <section class="admin-panel wide">
-                    <div class="panel-head"><div><h2>Where parts are</h2><small>See what is out, late, or safely back in the lab</small></div><div class="panel-actions"><button class="quiet-button" id="partslogRefreshBtn" type="button">↻&hairsp;Refresh</button></div></div>
+                    <div class="panel-head"><div><h2>Parts log</h2><small>What's out of the lab right now — live borrows, overdues and return history</small></div><div class="panel-actions"><button class="quiet-button" id="partslogRefreshBtn" type="button">↻&hairsp;Refresh</button></div></div>
             <div class="panel-body">
                         <div class="restock-stats" id="partslogStats"></div>
                         <div class="registry-toolbar">
@@ -80,7 +77,7 @@
             <section class="admin-view" id="restockView">
                 <section class="admin-panel wide">
                     <div class="panel-head">
-                        <div><h2>Stock helper</h2><small>A simple list of parts the lab may need soon</small></div>
+                        <div><h2>Restock planner</h2><small>Demand-driven reorder plan · deterministic algorithm · ALE refines it into a ready receipt</small></div>
                         <div class="panel-actions">
                             <button class="quiet-button ale-button" id="restockRunBtn" type="button">✦&hairsp;Run analysis</button>
                             <button class="quiet-button ale-button" id="restockAiBtn" type="button" hidden>✦&hairsp;Ask AI to refine</button>
@@ -158,6 +155,8 @@
 
     <div id="adminToast" class="dashboard-toast"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="admin.js?v=25"></script>
+    <script src="tutorial-content.js?v=1"></script>
+    <script src="tutorial.js?v=3"></script>
+    <script src="admin.js?v=27"></script>
 </body>
 </html>
